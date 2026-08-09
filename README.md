@@ -2,6 +2,10 @@
 
 A browser-based three-dimensional viewer and builder for K’NEX-style rods, connectors, wheels, and gears.
 
+**Live demo:** https://lutherfergus.github.io/curly-chainsaw/
+
+The demo is published from this repo with GitHub Pages and redeploys automatically on every push to `main` (and the current builder branch).
+
 ## Features
 
 - Sidebar catalog of rods, connectors, wheels, and gears
