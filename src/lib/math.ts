@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import type { CatalogPiece, PlacedPiece, PortDef, WorldPort } from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
 
-export const SNAP_DISTANCE = 0.55
+/** Max cursor distance to a free port for snap to engage. */
+export const SNAP_DISTANCE = 1.75
 export const GRID_SIZE = 0.5
 
 export function quatFromTuple(q: [number, number, number, number]): THREE.Quaternion {
@@ -128,12 +129,10 @@ export function findBestSnap(
       if (!compatible) continue
 
       const pose = alignPieceToPort(localPort, target)
-      const center = new THREE.Vector3(...pose.position)
-      const distance = center.distanceTo(cursor)
-      // Prefer snaps whose connection point is near the cursor too.
+      // Score by proximity to the target port — not the piece center —
+      // so long rods still snap when the cursor is near a socket.
       const portWorld = new THREE.Vector3(...target.position)
-      const portDist = portWorld.distanceTo(cursor)
-      const score = Math.min(distance, portDist)
+      const score = portWorld.distanceTo(cursor)
 
       if (score > SNAP_DISTANCE) continue
       if (!best || score < best.distance) {

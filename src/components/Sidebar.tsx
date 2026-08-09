@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { CATALOG, CATEGORY_LABELS } from '../data/catalog'
 import type { PieceCategory } from '../types/knex'
 import { useBuilderStore } from '../store/builderStore'
@@ -6,7 +6,6 @@ import { useBuilderStore } from '../store/builderStore'
 const ORDER: PieceCategory[] = ['rods', 'connectors', 'wheels', 'gears']
 
 export function Sidebar() {
-  const [openCategory, setOpenCategory] = useState<PieceCategory>('rods')
   const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
   const selectCatalog = useBuilderStore((s) => s.selectCatalog)
 
@@ -37,50 +36,39 @@ export function Sidebar() {
       </p>
 
       <div className="category-list">
-        {grouped.map((group) => {
-          const expanded = openCategory === group.category
-          return (
-            <section key={group.category} className="category">
-              <button
-                type="button"
-                className={`category-toggle${expanded ? ' open' : ''}`}
-                onClick={() =>
-                  setOpenCategory((current) =>
-                    current === group.category ? current : group.category,
-                  )
-                }
-                aria-expanded={expanded}
-              >
-                <span>{group.label}</span>
-                <span className="count">{group.items.length}</span>
-              </button>
-              <div className={`piece-grid${expanded ? ' show' : ''}`}>
-                {group.items.map((piece) => {
-                  const active = selectedCatalogId === piece.id
-                  return (
-                    <button
-                      key={piece.id}
-                      type="button"
-                      className={`piece-chip${active ? ' active' : ''}`}
-                      onClick={() => selectCatalog(piece.id)}
-                      title={piece.description}
-                    >
-                      <span
-                        className="swatch"
-                        style={{ background: piece.color }}
-                        aria-hidden="true"
-                      />
-                      <span className="piece-copy">
-                        <strong>{piece.name}</strong>
-                        <small>{piece.description}</small>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-          )
-        })}
+        {grouped.map((group) => (
+          <section key={group.category} className="category" aria-labelledby={`cat-${group.category}`}>
+            <h2 id={`cat-${group.category}`} className="category-heading">
+              <span>{group.label}</span>
+              <span className="count">{group.items.length}</span>
+            </h2>
+            <div className="piece-grid show">
+              {group.items.map((piece) => {
+                const active = selectedCatalogId === piece.id
+                return (
+                  <button
+                    key={piece.id}
+                    type="button"
+                    className={`piece-chip${active ? ' active' : ''}`}
+                    onClick={() => selectCatalog(piece.id)}
+                    title={piece.description}
+                    aria-pressed={active}
+                  >
+                    <span
+                      className="swatch"
+                      style={{ background: piece.color }}
+                      aria-hidden="true"
+                    />
+                    <span className="piece-copy">
+                      <strong>{piece.name}</strong>
+                      <small>{piece.description}</small>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        ))}
       </div>
     </aside>
   )
