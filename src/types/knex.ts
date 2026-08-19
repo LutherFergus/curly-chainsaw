@@ -4,11 +4,12 @@ export type PieceCategory = 'rods' | 'connectors' | 'wheels' | 'gears'
 export type PortKind = 'rod-end' | 'socket' | 'interlock'
 
 export type ConnectorVariant =
-  | 'plate' // full/near-full flat connector with center slot
-  | 'half' // silver semi-circle with rail
-  | 'ball' // two blues joined
-  | 'mixed' // silver + blue joined
-  | 'corner' // two silvers joined
+  | 'plate' // flat non-slotted connector
+  | 'full' // full slotted connector
+  | 'half' // half slotted connector
+  | 'double-full' // two fulls joined
+  | 'full-half' // full + half joined
+  | 'half-half' // two halves joined
 
 export interface PortDef {
   id: string
