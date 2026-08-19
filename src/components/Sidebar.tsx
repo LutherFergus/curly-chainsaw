@@ -6,6 +6,32 @@ import { PieceIcon } from './PieceIcon'
 
 const ORDER: PieceCategory[] = ['rods', 'connectors', 'wheels', 'gears']
 
+function Chevron({ direction }: { direction: 'left' | 'right' }) {
+  return (
+    <svg viewBox="0 0 24 24" className="chevron-icon" aria-hidden="true">
+      {direction === 'right' ? (
+        <path
+          d="M9 6l6 6-6 6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ) : (
+        <path
+          d="M15 6l-6 6 6 6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
+  )
+}
+
 export function Sidebar() {
   const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
   const selectCatalog = useBuilderStore((s) => s.selectCatalog)
@@ -20,40 +46,25 @@ export function Sidebar() {
   )
 
   return (
-    <aside className={`palette${menuOpen ? ' open' : ' collapsed'}`}>
-      <button
-        type="button"
-        className="palette-toggle"
-        onClick={toggleMenu}
-        aria-expanded={menuOpen}
-        aria-label={menuOpen ? 'Collapse piece menu' : 'Expand piece menu'}
-        title={menuOpen ? 'Collapse' : 'Pieces'}
-      >
-        <span className="palette-toggle-bars" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-      </button>
+    <aside className={`rail left-rail${menuOpen ? ' open' : ' collapsed'}`}>
+      <div className="rail-body">
+        <button
+          type="button"
+          className={`mode-btn${placementMode === 'multiple' ? ' multiple' : ''}`}
+          onClick={() =>
+            setPlacementMode(placementMode === 'single' ? 'multiple' : 'single')
+          }
+          title={
+            placementMode === 'single'
+              ? 'Single mode — tap to switch to Multiple'
+              : 'Multiple mode — tap to switch to Single'
+          }
+          aria-label={`Placement mode: ${placementMode}`}
+        >
+          {placementMode === 'single' ? 'Single' : 'Multiple'}
+        </button>
 
-      <button
-        type="button"
-        className={`mode-btn${placementMode === 'multiple' ? ' multiple' : ''}`}
-        onClick={() =>
-          setPlacementMode(placementMode === 'single' ? 'multiple' : 'single')
-        }
-        title={
-          placementMode === 'single'
-            ? 'Single mode — tap to switch to Multiple'
-            : 'Multiple mode — tap to switch to Single'
-        }
-        aria-label={`Placement mode: ${placementMode}`}
-      >
-        {placementMode === 'single' ? 'Single' : 'Multiple'}
-      </button>
-
-      {menuOpen && (
-        <div className="palette-column" role="listbox" aria-label="Pieces">
+        <div className="rail-stack" role="listbox" aria-label="Pieces">
           {items.map((piece) => {
             const active = selectedCatalogId === piece.id
             return (
@@ -72,19 +83,18 @@ export function Sidebar() {
             )
           })}
         </div>
-      )}
+      </div>
 
-      {!menuOpen && selectedCatalogId && (
-        <button
-          type="button"
-          className="palette-active-chip"
-          onClick={toggleMenu}
-          title="Open piece menu"
-          aria-label="Open piece menu"
-        >
-          <PieceIcon piece={CATALOG.find((p) => p.id === selectedCatalogId)!} />
-        </button>
-      )}
+      <button
+        type="button"
+        className="edge-chevron"
+        onClick={toggleMenu}
+        aria-expanded={menuOpen}
+        aria-label={menuOpen ? 'Collapse piece menu' : 'Open piece menu'}
+        title={menuOpen ? 'Collapse' : 'Pieces'}
+      >
+        <Chevron direction={menuOpen ? 'left' : 'right'} />
+      </button>
     </aside>
   )
 }
