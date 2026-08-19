@@ -53,3 +53,13 @@ export function snapCameraToNormal(normal: THREE.Vector3) {
   camera.lookAt(controls.target)
   controls.update()
 }
+
+export function setOrbitTarget(point: THREE.Vector3) {
+  if (!controls) return
+  const camera = controls.object
+  const offset = new THREE.Vector3().subVectors(camera.position, controls.target)
+  controls.target.copy(point)
+  camera.position.copy(point).add(offset)
+  camera.lookAt(controls.target)
+  controls.update()
+}

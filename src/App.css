@@ -250,26 +250,27 @@
 
 .view-cube {
   position: absolute;
-  right: 0.7rem;
-  bottom: 0.7rem;
+  right: 0.35rem;
+  bottom: 0.35rem;
   z-index: 4;
-  width: 7.5rem;
-  height: 8.4rem;
-  border-radius: 1rem;
-  overflow: hidden;
-  border: 1px solid rgba(33, 37, 41, 0.1);
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 10px 24px rgba(27, 36, 48, 0.12);
+  width: 7.25rem;
+  height: 8.1rem;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  overflow: visible;
   touch-action: none;
   user-select: none;
+  pointer-events: none;
 }
 
 .view-cube canvas {
-  width: 7.5rem !important;
-  height: 7.5rem !important;
+  width: 7.25rem !important;
+  height: 7.25rem !important;
   display: block;
+  background: transparent !important;
   touch-action: none;
+  pointer-events: auto;
 }
 
 .view-cube-mode {
@@ -278,16 +279,13 @@
   font-size: 0.68rem;
   font-weight: 750;
   letter-spacing: 0.12em;
-  padding: 0.15rem 0 0.28rem;
-  color: #0b7285;
-}
-
-.view-cube.pan {
-  border-color: rgba(230, 119, 0, 0.45);
+  padding: 0.05rem 0 0;
+  color: rgba(11, 114, 133, 0.8);
+  pointer-events: none;
 }
 
 .view-cube.pan .view-cube-mode {
-  color: #e67700;
+  color: rgba(230, 119, 0, 0.9);
 }
 
 @keyframes rise-in {
