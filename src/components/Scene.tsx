@@ -14,8 +14,11 @@ function PlacedPieces() {
   const selectedPieceId = useBuilderStore((s) => s.selectedPieceId)
   const selectPiece = useBuilderStore((s) => s.selectPiece)
   const tool = useBuilderStore((s) => s.tool)
+  const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
   const updateGhost = useBuilderStore((s) => s.updateGhost)
   const placeGhost = useBuilderStore((s) => s.placeGhost)
+  const rotateConnector = useBuilderStore((s) => s.rotateConnector)
+  const tap = useRef<{ id: string; x: number; y: number } | null>(null)
 
   return (
     <group>
@@ -23,6 +26,7 @@ function PlacedPieces() {
         const catalog = getCatalogPiece(piece.catalogId)
         if (!catalog) return null
         const selected = piece.id === selectedPieceId
+        const placing = tool === 'place' && Boolean(selectedCatalogId)
         return (
           <group
             key={piece.id}
@@ -33,20 +37,35 @@ function PlacedPieces() {
               e.stopPropagation()
               updateGhost(e.point.clone())
             }}
-            onClick={(e) => {
+            onPointerDown={(e) => {
+              if (placing) return
+              tap.current = { id: piece.id, x: e.clientX, y: e.clientY }
               e.stopPropagation()
-              if (tool === 'place') {
-                updateGhost(e.point.clone())
-                placeGhost()
+              if (tool === 'select') selectPiece(piece.id)
+            }}
+            onPointerUp={(e) => {
+              if (placing) return
+              const start = tap.current
+              tap.current = null
+              if (!start || start.id !== piece.id) return
+              const dx = e.clientX - start.x
+              const dy = e.clientY - start.y
+              if (dx * dx + dy * dy > 100) return
+              e.stopPropagation()
+              if (catalog.category === 'connectors') {
+                rotateConnector(piece.id)
                 return
               }
               selectPiece(piece.id)
             }}
-            onPointerDown={(e) => {
-              if (tool === 'select') {
-                e.stopPropagation()
-                selectPiece(piece.id)
-              }
+            onPointerCancel={() => {
+              tap.current = null
+            }}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!placing) return
+              updateGhost(e.point.clone())
+              placeGhost()
             }}
           >
             <PieceMesh

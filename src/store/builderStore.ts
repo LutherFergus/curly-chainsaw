@@ -1,7 +1,13 @@
 import { create } from 'zustand'
 import type { CameraNavMode, Connection, PlacementMode, PlacedPiece, ToolMode } from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
-import { allWorldPorts, findBestSnap, occupiedPortKeys, snapPointToGrid } from '../lib/math'
+import {
+  allWorldPorts,
+  findBestSnap,
+  nextUsableConnectorPose,
+  occupiedPortKeys,
+  snapPointToGrid,
+} from '../lib/math'
 import * as THREE from 'three'
 
 let nextId = 1
@@ -53,6 +59,7 @@ interface BuilderState {
   deleteSelected: () => void
   clearAll: () => void
   rotateSelectedY: (deltaRad: number) => void
+  rotateConnector: (id: string) => void
   undo: () => void
   redo: () => void
 }
@@ -223,6 +230,14 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   rotateSelectedY: (deltaRad) => {
     const { selectedPieceId, pieces, connections } = get()
     if (!selectedPieceId) return
+    const piece = pieces.find((p) => p.id === selectedPieceId)
+    if (!piece) return
+    const catalog = getCatalogPiece(piece.catalogId)
+    if (catalog?.category === 'connectors') {
+      get().rotateConnector(selectedPieceId)
+      return
+    }
+
     const locked = connections.some(
       (c) => c.aPieceId === selectedPieceId || c.bPieceId === selectedPieceId,
     )
@@ -236,6 +251,21 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
         q.premultiply(yaw)
         return { ...p, rotation: [q.x, q.y, q.z, q.w] }
       }),
+    }))
+  },
+
+  rotateConnector: (id) => {
+    const { pieces, connections } = get()
+    const piece = pieces.find((p) => p.id === id)
+    if (!piece) return
+    const next = nextUsableConnectorPose(piece, pieces, connections)
+    if (!next) return
+    withHistory(get, set, () => ({
+      pieces: pieces.map((p) =>
+        p.id === id ? { ...p, position: next.position, rotation: next.rotation } : p,
+      ),
+      connections: next.connections,
+      selectedPieceId: id,
     }))
   },
 
