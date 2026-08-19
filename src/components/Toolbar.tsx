@@ -13,6 +13,7 @@ export function Toolbar() {
   const pieces = useBuilderStore((s) => s.pieces)
   const connections = useBuilderStore((s) => s.connections)
   const ghost = useBuilderStore((s) => s.ghost)
+  const placementMode = useBuilderStore((s) => s.placementMode)
 
   const selectedPiece = pieces.find((p) => p.id === selectedPieceId)
   const selectedCatalog = selectedCatalogId ? getCatalogPiece(selectedCatalogId) : null
@@ -58,7 +59,12 @@ export function Toolbar() {
           <p>
             Placing <strong>{selectedCatalog.name}</strong>
             {ghost?.snap ? ' · snap locked' : ' · free on grid'}
+            {' · '}
+            {placementMode === 'single' ? 'single' : 'multiple'}
           </p>
+        )}
+        {tool === 'place' && !selectedCatalog && (
+          <p>Open the piece menu and pick a part to place</p>
         )}
         {tool === 'select' && (
           <p>
