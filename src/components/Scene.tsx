@@ -2,10 +2,12 @@ import { useMemo, useRef } from 'react'
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { ContactShadows, Grid, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { getCatalogPiece } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
 import { allWorldPorts, occupiedPortKeys } from '../lib/math'
+import { setOrbitControls } from '../lib/orbitBridge'
 
 function PlacedPieces() {
   const pieces = useBuilderStore((s) => s.pieces)
@@ -192,6 +194,10 @@ function CursorTracker() {
 }
 
 export function Scene() {
+  const cameraNavMode = useBuilderStore((s) => s.cameraNavMode)
+  const controlsRef = useRef<OrbitControlsImpl>(null)
+  const fly = cameraNavMode === 'fly'
+
   return (
     <>
       <color attach="background" args={['#d8e2ec']} />
@@ -232,11 +238,28 @@ export function Scene() {
       />
 
       <OrbitControls
+        ref={(node) => {
+          controlsRef.current = node
+          setOrbitControls(node)
+        }}
         makeDefault
-        maxPolarAngle={Math.PI * 0.49}
+        enableRotate={fly}
+        enablePan
+        screenSpacePanning
+        minPolarAngle={0.04}
+        maxPolarAngle={Math.PI - 0.04}
         minDistance={0.45}
         maxDistance={60}
         target={[0, 0.5, 0]}
+        mouseButtons={{
+          LEFT: fly ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.PAN,
+        }}
+        touches={{
+          ONE: fly ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN,
+          TWO: THREE.TOUCH.DOLLY_PAN,
+        }}
       />
     </>
   )
