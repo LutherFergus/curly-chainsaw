@@ -221,7 +221,7 @@ function CursorTracker() {
 
   useFrame(() => {
     const rodAim = useBuilderStore.getState().rodAim
-    if (rodAim?.dragging) return
+    if (rodAim?.dragging || useBuilderStore.getState().rodSteer) return
     if (tool !== 'place') return
     raycaster.setFromCamera(pointer, camera)
     if (rodAim) {
@@ -389,11 +389,99 @@ function RodAimGestures() {
   return null
 }
 
+function pointerToWorkPoint(
+  event: PointerEvent,
+  canvas: HTMLCanvasElement,
+  camera: THREE.Camera,
+  workNormal: [number, number, number],
+): THREE.Vector3 | null {
+  const rect = canvas.getBoundingClientRect()
+  const ndc = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  )
+  const raycaster = new THREE.Raycaster()
+  raycaster.setFromCamera(ndc, camera)
+  const plane = new THREE.Plane()
+  plane.setFromNormalAndCoplanarPoint(
+    new THREE.Vector3(...workNormal).normalize(),
+    new THREE.Vector3(0, 0.35, 0),
+  )
+  const hit = new THREE.Vector3()
+  if (!raycaster.ray.intersectPlane(plane, hit)) return null
+  return hit
+}
+
+function RodSteerGestures() {
+  const { camera, gl } = useThree()
+  const dragging = useRef(false)
+
+  useEffect(() => {
+    const canvas = gl.domElement
+
+    const placingRod = () => {
+      const state = useBuilderStore.getState()
+      if (state.tool !== 'place' || !state.selectedCatalogId || state.rodAim) return false
+      return getCatalogPiece(state.selectedCatalogId)?.category === 'rods'
+    }
+
+    const onDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.pointerType === 'mouse') return
+      if (!placingRod()) return
+      const state = useBuilderStore.getState()
+      const hit = pointerToWorkPoint(event, canvas, camera, state.workNormal)
+      if (!hit) return
+      dragging.current = true
+      state.beginRodSteer(hit)
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
+
+    const onMove = (event: PointerEvent) => {
+      if (!dragging.current) return
+      const state = useBuilderStore.getState()
+      if (!state.rodSteer) return
+      const hit = pointerToWorkPoint(event, canvas, camera, state.workNormal)
+      if (hit) state.steerRod(hit)
+    }
+
+    const onUp = () => {
+      if (!dragging.current) return
+      dragging.current = false
+      const state = useBuilderStore.getState()
+      if (state.rodSteer && state.ghost) {
+        skipPlaceClick = true
+        state.placeGhost()
+      }
+      state.endRodSteer()
+    }
+
+    canvas.addEventListener('pointerdown', onDown, { capture: true })
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [camera, gl])
+
+  return null
+}
+
 export function Scene() {
   const cameraNavMode = useBuilderStore((s) => s.cameraNavMode)
   const rodAim = useBuilderStore((s) => s.rodAim)
+  const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
+  const tool = useBuilderStore((s) => s.tool)
+  const placingRod =
+    tool === 'place' && getCatalogPiece(selectedCatalogId ?? '')?.category === 'rods'
+  const lockView = Boolean(rodAim) || placingRod
   const controlsRef = useRef<OrbitControlsImpl>(null)
-  const fly = cameraNavMode === 'fly' && !rodAim
+  const fly = cameraNavMode === 'fly' && !lockView
 
   return (
     <>
@@ -424,6 +512,7 @@ export function Scene() {
       <OrbitFocus />
       <RodAimCamera />
       <RodAimGestures />
+      <RodSteerGestures />
       <PlacementPlane />
       <PlacedPieces />
       <GhostPiece />
@@ -445,7 +534,7 @@ export function Scene() {
         }}
         makeDefault
         enableRotate={fly}
-        enablePan={!rodAim}
+        enablePan={!lockView}
         screenSpacePanning
         minPolarAngle={0.04}
         maxPolarAngle={Math.PI - 0.04}

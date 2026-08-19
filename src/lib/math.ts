@@ -75,6 +75,60 @@ export function snapPointToGrid(point: THREE.Vector3, y = 0.35): THREE.Vector3 {
   )
 }
 
+function planeBasis(normal: THREE.Vector3): { tangent: THREE.Vector3; bitangent: THREE.Vector3 } {
+  const n = normal.clone().normalize()
+  const helper =
+    Math.abs(n.dot(new THREE.Vector3(0, 1, 0))) < 0.85
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(1, 0, 0)
+  const tangent = new THREE.Vector3().crossVectors(helper, n).normalize()
+  const bitangent = new THREE.Vector3().crossVectors(n, tangent).normalize()
+  return { tangent, bitangent }
+}
+
+/** Snap a direction onto the 45° K'NEX compass in the working plane. */
+export function detentDirectionOnPlane(
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  workNormal: THREE.Vector3,
+): THREE.Vector3 | null {
+  const normal = workNormal.clone().normalize()
+  const delta = to.clone().sub(from)
+  delta.sub(normal.clone().multiplyScalar(delta.dot(normal)))
+  if (delta.lengthSq() < 0.04) return null
+  delta.normalize()
+  const { tangent, bitangent } = planeBasis(normal)
+  const theta = Math.atan2(delta.dot(bitangent), delta.dot(tangent))
+  const snapped = Math.round(theta / KNEX_DETENT) * KNEX_DETENT
+  return tangent
+    .multiplyScalar(Math.cos(snapped))
+    .add(bitangent.multiplyScalar(Math.sin(snapped)))
+    .normalize()
+}
+
+/**
+ * Lay a rod in the working plane with one end pinned at `anchor` and the
+ * free tip aimed at `tip` (45° detents).
+ */
+export function aimRodFromAnchor(
+  catalog: CatalogPiece,
+  anchor: THREE.Vector3,
+  tip: THREE.Vector3,
+  workNormal: THREE.Vector3,
+): { position: [number, number, number]; rotation: [number, number, number, number] } | null {
+  if (catalog.category !== 'rods') return null
+  const length = catalog.length ?? 1
+  const dir = detentDirectionOnPlane(anchor, tip, workNormal)
+  if (!dir) return null
+  const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir)
+  const half = length / 2
+  const center = anchor.clone().add(dir.clone().multiplyScalar(half))
+  return {
+    position: [center.x, center.y, center.z],
+    rotation: tupleFromQuat(rotation),
+  }
+}
+
 /**
  * Orient a piece so one of its ports matches a target world port
  * (opposite direction, same position after placement).
