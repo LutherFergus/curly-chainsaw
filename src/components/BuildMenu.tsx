@@ -126,7 +126,7 @@ export function BuildMenu() {
             className="tool-btn"
             onClick={() => rotateSelectedY(Math.PI / 4)}
             disabled={!selectedPieceId}
-            title="Rotate"
+            title="Rotate — tap a connector to cycle usable positions"
           >
             Rotate
           </button>
