@@ -63,3 +63,38 @@ export function setOrbitTarget(point: THREE.Vector3) {
   camera.lookAt(controls.target)
   controls.update()
 }
+
+export interface CameraShot {
+  target: THREE.Vector3
+  position: THREE.Vector3
+}
+
+export function captureCameraShot(): CameraShot | null {
+  if (!controls) return null
+  return {
+    target: controls.target.clone(),
+    position: controls.object.position.clone(),
+  }
+}
+
+export function lerpCameraShot(goal: CameraShot, t: number) {
+  if (!controls) return
+  const camera = controls.object
+  camera.position.lerp(goal.position, t)
+  controls.target.lerp(goal.target, t)
+  camera.lookAt(controls.target)
+  controls.update()
+}
+
+export function aimCameraAt(point: THREE.Vector3, distance: number, t: number) {
+  if (!controls) return
+  const camera = controls.object
+  const offset = new THREE.Vector3().subVectors(camera.position, controls.target)
+  if (offset.lengthSq() < 1e-6) offset.set(0, 0.4, 1)
+  offset.setLength(distance)
+  const goalPos = point.clone().add(offset)
+  camera.position.lerp(goalPos, t)
+  controls.target.lerp(point, t)
+  camera.lookAt(controls.target)
+  controls.update()
+}

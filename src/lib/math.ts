@@ -184,6 +184,165 @@ export function findBestSnap(
   return best
 }
 
+export interface ConnectorAimPose {
+  position: [number, number, number]
+  rotation: [number, number, number, number]
+  localPortId: string
+  /** World direction from the rod tip toward the connector body, used to aim. */
+  fan: [number, number, number]
+  inPlane: boolean
+}
+
+function poseOnRod(
+  localPort: PortDef,
+  target: WorldPort,
+  twistRad: number,
+): { position: [number, number, number]; rotation: [number, number, number, number] } {
+  const base = alignPieceToPort(localPort, target)
+  if (Math.abs(twistRad) < 1e-8) return base
+  const axis = new THREE.Vector3(...target.direction)
+  const pivot = new THREE.Vector3(...target.position)
+  return rotatePoseAroundAxis(
+    { id: '', catalogId: '', position: base.position, rotation: base.rotation },
+    axis,
+    pivot,
+    twistRad,
+  )
+}
+
+function fanFromPose(
+  catalog: CatalogPiece,
+  pose: { position: [number, number, number]; rotation: [number, number, number, number] },
+  usedPortId: string,
+  target: WorldPort,
+): THREE.Vector3 {
+  const dummy: PlacedPiece = {
+    id: 'aim',
+    catalogId: catalog.id,
+    position: pose.position,
+    rotation: pose.rotation,
+  }
+  const tip = new THREE.Vector3(...target.position)
+  const rodDir = new THREE.Vector3(...target.direction).normalize()
+  const acc = new THREE.Vector3()
+  let count = 0
+  for (const port of catalog.ports) {
+    if (port.kind !== 'socket' || port.id === usedPortId) continue
+    const wp = worldPort(dummy, port, false)
+    acc.add(new THREE.Vector3(...wp.position))
+    count += 1
+  }
+  let fan = count > 0 ? acc.multiplyScalar(1 / count).sub(tip) : new THREE.Vector3()
+  fan.sub(rodDir.clone().multiplyScalar(fan.dot(rodDir)))
+  if (fan.lengthSq() < 1e-5) {
+    const plate = new THREE.Vector3(0, 1, 0).applyQuaternion(quatFromTuple(pose.rotation))
+    fan = new THREE.Vector3().crossVectors(plate, rodDir)
+    if (fan.lengthSq() < 1e-5) fan.crossVectors(new THREE.Vector3(1, 0, 0), rodDir)
+  }
+  return fan.normalize()
+}
+
+function geometryKey(
+  position: [number, number, number],
+  rotation: [number, number, number, number],
+): string {
+  const q = canonicalRotation(rotation)
+  const r = (n: number) => n.toFixed(2)
+  return `${r(position[0])}|${r(position[1])}|${r(position[2])}|${r(q[0])}|${r(q[1])}|${r(q[2])}|${r(q[3])}`
+}
+
+/** Discrete connector poses that can sit on a free rod end. */
+export function connectorPosesOnRodEnd(
+  catalog: CatalogPiece,
+  target: WorldPort,
+  workNormal: THREE.Vector3,
+): ConnectorAimPose[] {
+  if (catalog.category !== 'connectors' || target.kind !== 'rod-end') return []
+  const sockets = catalog.ports.filter((p) => p.kind === 'socket')
+  const seen = new Set<string>()
+  const poses: ConnectorAimPose[] = []
+  const work = workNormal.clone().normalize()
+
+  for (const socket of sockets) {
+    for (let t = 0; t < 8; t++) {
+      const pose = poseOnRod(socket, target, t * KNEX_DETENT)
+      const key = geometryKey(pose.position, pose.rotation)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const plate = new THREE.Vector3(0, 1, 0).applyQuaternion(quatFromTuple(pose.rotation))
+      const inPlane = plate.dot(work) > 0.92
+      const fan = fanFromPose(catalog, pose, socket.id, target)
+      poses.push({
+        position: pose.position,
+        rotation: canonicalRotation(pose.rotation),
+        localPortId: socket.id,
+        fan: [fan.x, fan.y, fan.z],
+        inPlane,
+      })
+    }
+  }
+
+  const planar = poses.filter((p) => p.inPlane)
+  const chosen = planar.length ? planar : poses
+  chosen.sort((a, b) => Number(b.inPlane) - Number(a.inPlane))
+  return chosen
+}
+
+export function pickConnectorAimPose(
+  poses: ConnectorAimPose[],
+  tip: THREE.Vector3,
+  camera: THREE.Camera,
+  clientX: number,
+  clientY: number,
+  canvas: HTMLCanvasElement,
+): number {
+  if (poses.length === 0) return 0
+  const rect = canvas.getBoundingClientRect()
+  const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1
+  const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1)
+  const tipNdc = tip.clone().project(camera)
+  const pointer = new THREE.Vector2(ndcX - tipNdc.x, ndcY - tipNdc.y)
+  if (pointer.lengthSq() < 1e-5) {
+    const inPlane = poses.findIndex((p) => p.inPlane)
+    return inPlane >= 0 ? inPlane : 0
+  }
+
+  let best = 0
+  let bestScore = Number.POSITIVE_INFINITY
+  for (let i = 0; i < poses.length; i++) {
+    const point = tip.clone().add(new THREE.Vector3(...poses[i].fan).multiplyScalar(0.45))
+    const ndc = point.project(camera)
+    const delta = new THREE.Vector2(ndc.x - tipNdc.x, ndc.y - tipNdc.y)
+    if (delta.lengthSq() < 1e-6) continue
+    const angle = Math.abs(Math.atan2(pointer.y, pointer.x) - Math.atan2(delta.y, delta.x))
+    const wrapped = Math.min(angle, Math.PI * 2 - angle)
+    const score = wrapped
+    if (score < bestScore) {
+      bestScore = score
+      best = i
+    }
+  }
+  return best
+}
+
+export function nearestRodEnd(
+  ports: WorldPort[],
+  cursor: THREE.Vector3,
+  maxDistance = SNAP_DISTANCE,
+): WorldPort | null {
+  let best: WorldPort | null = null
+  let bestDist = maxDistance
+  for (const port of ports) {
+    if (port.kind !== 'rod-end' || port.occupied) continue
+    const dist = new THREE.Vector3(...port.position).distanceTo(cursor)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = port
+    }
+  }
+  return best
+}
+
 export function occupiedPortKeys(
   connections: { aPieceId: string; aPortId: string; bPieceId: string; bPortId: string }[],
 ): Set<string> {
