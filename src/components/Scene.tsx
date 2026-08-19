@@ -234,8 +234,8 @@ export function Scene() {
       <OrbitControls
         makeDefault
         maxPolarAngle={Math.PI * 0.49}
-        minDistance={3}
-        maxDistance={40}
+        minDistance={0.45}
+        maxDistance={60}
         target={[0, 0.5, 0]}
       />
     </>
