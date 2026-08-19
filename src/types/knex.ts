@@ -1,7 +1,7 @@
 export type PieceCategory = 'rods' | 'connectors' | 'wheels' | 'gears'
 
 /** rod-end ↔ socket; interlock ↔ interlock (connector plates slid together) */
-export type PortKind = 'rod-end' | 'socket' | 'interlock'
+export type PortKind = 'rod-end' | 'socket' | 'interlock' | 'shaft'
 
 export type ConnectorVariant =
   | 'plate' // flat non-slotted connector

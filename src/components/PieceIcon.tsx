@@ -76,7 +76,9 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   }
 
   if (piece.category === 'connectors') {
-    const sockets = piece.ports.filter((p) => p.kind === 'socket').length
+    const sockets = piece.ports.filter(
+      (p) => p.kind === 'socket' && !p.id.startsWith('center'),
+    ).length
     const count = Math.min(8, Math.max(2, sockets))
     return (
       <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">

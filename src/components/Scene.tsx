@@ -6,7 +6,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { getCatalogPiece } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
-import { allWorldPorts, occupiedPortKeys, pickConnectorAimPose } from '../lib/math'
+import { allWorldPorts, isCenterSocket, occupiedPortKeys, pickConnectorAimPose } from '../lib/math'
 import {
   aimCameraAt,
   captureCameraShot,
@@ -50,7 +50,7 @@ function PlacedPieces() {
             onPointerMove={(e) => {
               if (tool !== 'place') return
               e.stopPropagation()
-              updateGhost(e.point.clone())
+              updateGhost(e.point.clone(), e.ray.clone())
             }}
             onPointerDown={(e) => {
               if (placing) return
@@ -80,7 +80,7 @@ function PlacedPieces() {
               if (consumePlaceClick()) return
               e.stopPropagation()
               if (!placing) return
-              updateGhost(e.point.clone())
+              updateGhost(e.point.clone(), e.ray.clone())
               placeGhost()
             }}
           >
@@ -141,34 +141,30 @@ function SnapHints() {
     return allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
   }, [pieces, connections, tool, selectedCatalogId])
 
-  if (!freePorts.length) return null
+  const hints = freePorts.filter((p) => p.kind !== 'shaft')
+  if (!hints.length) return null
 
   return (
     <group>
-      {freePorts.map((port) => (
-        <mesh key={`${port.pieceId}:${port.portId}`} position={port.position}>
-          <sphereGeometry args={[0.07, 12, 12]} />
-          <meshStandardMaterial
-            color={
-              port.kind === 'socket'
-                ? '#ffd43b'
-                : port.kind === 'interlock'
-                  ? '#ff922b'
-                  : '#66d9e8'
-            }
-            emissive={
-              port.kind === 'socket'
-                ? '#fcc419'
-                : port.kind === 'interlock'
-                  ? '#fd7e14'
-                  : '#22b8cf'
-            }
-            emissiveIntensity={0.4}
-            transparent
-            opacity={0.85}
-          />
-        </mesh>
-      ))}
+      {hints.map((port) => {
+        const center = port.kind === 'socket' && isCenterSocket(port.portId)
+        const color =
+          port.kind === 'interlock' ? '#ff922b' : center ? '#c0eb75' : port.kind === 'socket' ? '#ffd43b' : '#66d9e8'
+        const emissive =
+          port.kind === 'interlock' ? '#fd7e14' : center ? '#82c91e' : port.kind === 'socket' ? '#fcc419' : '#22b8cf'
+        return (
+          <mesh key={`${port.pieceId}:${port.portId}`} position={port.position}>
+            <sphereGeometry args={[center ? 0.055 : 0.07, 12, 12]} />
+            <meshStandardMaterial
+              color={color}
+              emissive={emissive}
+              emissiveIntensity={0.4}
+              transparent
+              opacity={0.85}
+            />
+          </mesh>
+        )
+      })}
     </group>
   )
 }
@@ -182,14 +178,14 @@ function PlacementPlane() {
 
   const onMove = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== 'place') return
-    updateGhost(e.point.clone())
+    updateGhost(e.point.clone(), e.ray.clone())
   }
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     if (consumePlaceClick()) return
     e.stopPropagation()
     if (tool === 'place') {
-      updateGhost(e.point.clone())
+      updateGhost(e.point.clone(), e.ray.clone())
       placeGhost()
       return
     }
@@ -210,35 +206,35 @@ function PlacementPlane() {
   )
 }
 
-/** Keep ghost aligned from the ground plane without spamming store updates. */
+/** Keep ghost aligned to the pointer ray without spamming store updates. */
 function CursorTracker() {
   const tool = useBuilderStore((s) => s.tool)
   const updateGhost = useBuilderStore((s) => s.updateGhost)
   const { raycaster, camera, pointer } = useThree()
   const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const hit = useMemo(() => new THREE.Vector3(), [])
-  const last = useRef(new THREE.Vector3(Number.NaN, 0, 0))
+  const lastPoint = useRef(new THREE.Vector3(Number.NaN, 0, 0))
+  const lastDir = useRef(new THREE.Vector3(Number.NaN, 0, 0))
 
   useFrame(() => {
     const rodAim = useBuilderStore.getState().rodAim
     if (rodAim?.dragging || useBuilderStore.getState().rodSteer) return
     if (tool !== 'place') return
     raycaster.setFromCamera(pointer, camera)
+    const ray = raycaster.ray
+    const sample = hit
     if (rodAim) {
       const tip = new THREE.Vector3(...rodAim.tip)
-      const closest = new THREE.Vector3()
-      raycaster.ray.closestPointToPoint(tip, closest)
-      if (last.current.distanceToSquared(closest) < 0.0004) return
-      last.current.copy(closest)
-      updateGhost(closest.clone())
+      ray.closestPointToPoint(tip, sample)
+    } else if (!ray.intersectPlane(plane, sample)) {
       return
     }
-    if (!raycaster.ray.intersectPlane(plane, hit)) return
-    raycaster.setFromCamera(pointer, camera)
-    if (!raycaster.ray.intersectPlane(plane, hit)) return
-    if (last.current.distanceToSquared(hit) < 0.0004) return
-    last.current.copy(hit)
-    updateGhost(hit.clone())
+    const moved = lastPoint.current.distanceToSquared(sample) > 1e-6
+    const turned = lastDir.current.distanceToSquared(ray.direction) > 1e-8
+    if (!moved && !turned) return
+    lastPoint.current.copy(sample)
+    lastDir.current.copy(ray.direction)
+    updateGhost(sample.clone(), ray.clone())
   })
 
   return null
@@ -389,12 +385,11 @@ function RodAimGestures() {
   return null
 }
 
-function pointerToWorkPoint(
+function pointerRay(
   event: PointerEvent,
   canvas: HTMLCanvasElement,
   camera: THREE.Camera,
-  workNormal: [number, number, number],
-): THREE.Vector3 | null {
+): THREE.Ray {
   const rect = canvas.getBoundingClientRect()
   const ndc = new THREE.Vector2(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -402,13 +397,23 @@ function pointerToWorkPoint(
   )
   const raycaster = new THREE.Raycaster()
   raycaster.setFromCamera(ndc, camera)
+  return raycaster.ray.clone()
+}
+
+function pointerToWorkPoint(
+  event: PointerEvent,
+  canvas: HTMLCanvasElement,
+  camera: THREE.Camera,
+  workNormal: [number, number, number],
+): THREE.Vector3 | null {
+  const ray = pointerRay(event, canvas, camera)
   const plane = new THREE.Plane()
   plane.setFromNormalAndCoplanarPoint(
     new THREE.Vector3(...workNormal).normalize(),
     new THREE.Vector3(0, 0.35, 0),
   )
   const hit = new THREE.Vector3()
-  if (!raycaster.ray.intersectPlane(plane, hit)) return null
+  if (!ray.intersectPlane(plane, hit)) return null
   return hit
 }
 
@@ -429,10 +434,12 @@ function RodSteerGestures() {
       if (event.button !== 0 && event.pointerType === 'mouse') return
       if (!placingRod()) return
       const state = useBuilderStore.getState()
+      const ray = pointerRay(event, canvas, camera)
       const hit = pointerToWorkPoint(event, canvas, camera, state.workNormal)
       if (!hit) return
       dragging.current = true
       state.beginRodSteer(hit)
+      state.steerRod(hit, ray)
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation()
@@ -442,8 +449,9 @@ function RodSteerGestures() {
       if (!dragging.current) return
       const state = useBuilderStore.getState()
       if (!state.rodSteer) return
+      const ray = pointerRay(event, canvas, camera)
       const hit = pointerToWorkPoint(event, canvas, camera, state.workNormal)
-      if (hit) state.steerRod(hit)
+      if (hit) state.steerRod(hit, ray)
     }
 
     const onUp = () => {

@@ -129,17 +129,32 @@ export function aimRodFromAnchor(
   }
 }
 
+export function isCenterSocket(portId: string): boolean {
+  return portId.startsWith('center')
+}
+
 /**
  * Orient a piece so one of its ports matches a target world port
  * (opposite direction, same position after placement).
  *
  * Interlock ports (connector center slots) join at 90° so two flat
  * plates nest into a 3D hub — matching blue/silver slide joins.
+ * A rod shaft through a center hole keeps the hub on the rod axis.
  */
 export function alignPieceToPort(
   localPort: PortDef,
   target: WorldPort,
 ): { position: [number, number, number]; rotation: [number, number, number, number] } {
+  if (localPort.kind === 'shaft' && isCenterSocket(target.portId)) {
+    const localDir = new THREE.Vector3(...localPort.direction).normalize()
+    const targetDir = new THREE.Vector3(...target.direction).normalize()
+    const rotation = new THREE.Quaternion().setFromUnitVectors(localDir, targetDir)
+    const targetPos = new THREE.Vector3(...target.position)
+    return {
+      position: [targetPos.x, targetPos.y, targetPos.z],
+      rotation: tupleFromQuat(rotation),
+    }
+  }
   if (localPort.kind === 'interlock' && target.kind === 'interlock') {
     const targetHub = new THREE.Vector3(...target.direction).normalize()
     const helper =
@@ -212,7 +227,8 @@ export function findBestSnap(
   for (const localPort of catalog.ports) {
     for (const target of freePorts) {
       const compatible =
-        (localPort.kind === 'rod-end' && target.kind === 'socket') ||
+        (localPort.kind === 'rod-end' && target.kind === 'socket' && !isCenterSocket(target.portId)) ||
+        (localPort.kind === 'shaft' && target.kind === 'socket' && isCenterSocket(target.portId)) ||
         (localPort.kind === 'socket' && target.kind === 'rod-end') ||
         (localPort.kind === 'interlock' && target.kind === 'interlock')
       if (!compatible) continue
@@ -236,6 +252,46 @@ export function findBestSnap(
   }
 
   return best
+}
+
+const HOVER_PERP = 0.4
+
+/** Socket the pointer is actually over — not the ground projection under it. */
+export function nearestSocketAlongRay(
+  ports: WorldPort[],
+  ray: THREE.Ray,
+  maxPerp = HOVER_PERP,
+): WorldPort | null {
+  let best: WorldPort | null = null
+  let bestScore = Number.POSITIVE_INFINITY
+  const closest = new THREE.Vector3()
+  for (const port of ports) {
+    if (port.kind !== 'socket' || port.occupied) continue
+    const point = new THREE.Vector3(...port.position)
+    ray.closestPointToPoint(point, closest)
+    const along = closest.clone().sub(ray.origin).dot(ray.direction)
+    if (along < 0.08) continue
+    const perp = closest.distanceTo(point)
+    if (perp > maxPerp) continue
+    const dir = new THREE.Vector3(...port.direction)
+    const aligned = Math.abs(dir.dot(ray.direction))
+    const score = perp + along * 0.002 - aligned * 0.08
+    if (score < bestScore) {
+      bestScore = score
+      best = port
+    }
+  }
+  return best
+}
+
+export function findBestSnapOnRay(
+  catalog: CatalogPiece,
+  freePorts: WorldPort[],
+  ray: THREE.Ray,
+): ReturnType<typeof findBestSnap> {
+  const hovered = nearestSocketAlongRay(freePorts, ray)
+  if (!hovered) return null
+  return findBestSnap(catalog, [hovered], new THREE.Vector3(...hovered.position))
 }
 
 export interface ConnectorAimPose {
@@ -282,6 +338,7 @@ function fanFromPose(
   let count = 0
   for (const port of catalog.ports) {
     if (port.kind !== 'socket' || port.id === usedPortId) continue
+    if (port.id.startsWith('center')) continue
     const wp = worldPort(dummy, port, false)
     acc.add(new THREE.Vector3(...wp.position))
     count += 1
@@ -312,7 +369,7 @@ export function connectorPosesOnRodEnd(
   workNormal: THREE.Vector3,
 ): ConnectorAimPose[] {
   if (catalog.category !== 'connectors' || target.kind !== 'rod-end') return []
-  const sockets = catalog.ports.filter((p) => p.kind === 'socket')
+  const sockets = catalog.ports.filter((p) => p.kind === 'socket' && !p.id.startsWith('center'))
   const seen = new Set<string>()
   const poses: ConnectorAimPose[] = []
   const work = workNormal.clone().normalize()
@@ -408,17 +465,21 @@ export function occupiedPortKeys(
   return keys
 }
 
-function portsCompatible(localKind: PortDef['kind'], targetKind: PortDef['kind']): boolean {
-  return (
-    (localKind === 'rod-end' && targetKind === 'socket') ||
-    (localKind === 'socket' && targetKind === 'rod-end') ||
-    (localKind === 'interlock' && targetKind === 'interlock')
-  )
+function portsCompatible(local: PortDef, target: WorldPort): boolean {
+  if (local.kind === 'interlock' && target.kind === 'interlock') return true
+  if (local.kind === 'rod-end' && target.kind === 'socket') return !isCenterSocket(target.portId)
+  if (local.kind === 'socket' && target.kind === 'rod-end') return !isCenterSocket(local.id)
+  if (local.kind === 'shaft' && target.kind === 'socket') return isCenterSocket(target.portId)
+  if (local.kind === 'socket' && target.kind === 'shaft') return isCenterSocket(local.id)
+  return false
 }
 
-function directionsMatch(localKind: PortDef['kind'], a: THREE.Vector3, b: THREE.Vector3): boolean {
+function directionsMatch(local: PortDef, a: THREE.Vector3, b: THREE.Vector3): boolean {
   const dot = a.dot(b)
-  if (localKind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
+  if (local.kind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
+  if (local.kind === 'shaft' || (local.kind === 'socket' && isCenterSocket(local.id))) {
+    return Math.abs(dot) > 0.9
+  }
   return dot < POSE_DIR_OPPOSITE
 }
 
@@ -503,13 +564,13 @@ export function retargetConnectorConnections(
     const options: { id: string; dist: number }[] = []
     for (const local of catalog.ports) {
       if (used.has(local.id)) continue
-      if (!portsCompatible(local.kind, job.target.kind)) continue
+      if (!portsCompatible(local, job.target)) continue
       const wp = worldPort(piece, local, true)
       const dist = new THREE.Vector3(...wp.position).distanceTo(
         new THREE.Vector3(...job.target.position),
       )
       if (dist > POSE_POS_TOL) continue
-      if (!directionsMatch(local.kind, new THREE.Vector3(...wp.direction), targetDir)) continue
+      if (!directionsMatch(local, new THREE.Vector3(...wp.direction), targetDir)) continue
       if (local.kind === 'interlock') {
         const aligned = Math.abs(slotDirection(piece).dot(slotDirection(job.partner)))
         if (aligned < SLOT_ALIGN) continue
@@ -566,7 +627,7 @@ export function connectorWorkNormal(
     if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
     const portId = conn.aPieceId === piece.id ? conn.aPortId : conn.bPortId
     const port = catalog.ports.find((p) => p.id === portId)
-    if (!port || port.kind !== 'socket') continue
+    if (!port || port.kind !== 'socket' || isCenterSocket(port.id)) continue
     if (Math.abs(port.direction[1]) < 0.35) yPlane += 1
     else zPlane += 1
   }
