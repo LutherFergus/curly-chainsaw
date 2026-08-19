@@ -248,6 +248,48 @@
   padding-left: 0.25rem;
 }
 
+.view-cube {
+  position: absolute;
+  right: 0.7rem;
+  bottom: 0.7rem;
+  z-index: 4;
+  width: 7.5rem;
+  height: 8.4rem;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(33, 37, 41, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px rgba(27, 36, 48, 0.12);
+  touch-action: none;
+  user-select: none;
+}
+
+.view-cube canvas {
+  width: 7.5rem !important;
+  height: 7.5rem !important;
+  display: block;
+  touch-action: none;
+}
+
+.view-cube-mode {
+  display: block;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  padding: 0.15rem 0 0.28rem;
+  color: #0b7285;
+}
+
+.view-cube.pan {
+  border-color: rgba(230, 119, 0, 0.45);
+}
+
+.view-cube.pan .view-cube-mode {
+  color: #e67700;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;

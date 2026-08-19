@@ -62,3 +62,6 @@ export type ToolMode = 'place' | 'select'
 
 /** single = pick → place → pick again; multiple = keep placing the same piece */
 export type PlacementMode = 'single' | 'multiple'
+
+/** fly = orbit/rotate camera; pan = slide the view */
+export type CameraNavMode = 'fly' | 'pan'

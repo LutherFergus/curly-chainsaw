@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Connection, PlacementMode, PlacedPiece, ToolMode } from '../types/knex'
+import type { CameraNavMode, Connection, PlacementMode, PlacedPiece, ToolMode } from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
 import { allWorldPorts, findBestSnap, occupiedPortKeys, snapPointToGrid } from '../lib/math'
 import * as THREE from 'three'
@@ -17,6 +17,7 @@ interface BuilderState {
   selectedPieceId: string | null
   tool: ToolMode
   placementMode: PlacementMode
+  cameraNavMode: CameraNavMode
   menuOpen: boolean
   ghost: {
     catalogId: string
@@ -31,6 +32,7 @@ interface BuilderState {
   selectCatalog: (id: string | null) => void
   setTool: (tool: ToolMode) => void
   setPlacementMode: (mode: PlacementMode) => void
+  toggleCameraNavMode: () => void
   setMenuOpen: (open: boolean) => void
   toggleMenu: () => void
   selectPiece: (id: string | null) => void
@@ -51,6 +53,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   selectedPieceId: null,
   tool: 'place',
   placementMode: 'single',
+  cameraNavMode: 'fly',
   menuOpen: true,
   ghost: null,
 
@@ -71,6 +74,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     }),
 
   setPlacementMode: (mode) => set({ placementMode: mode }),
+
+  toggleCameraNavMode: () =>
+    set({ cameraNavMode: get().cameraNavMode === 'fly' ? 'pan' : 'fly' }),
 
   setMenuOpen: (open) => set({ menuOpen: open }),
 
