@@ -65,11 +65,32 @@ export function snapPointToGrid(point: THREE.Vector3, y = 0.35): THREE.Vector3 {
 /**
  * Orient a piece so one of its ports matches a target world port
  * (opposite direction, same position after placement).
+ *
+ * Interlock ports (connector center slots) join at 90° so two flat
+ * plates nest into a 3D hub — matching blue/silver slide joins.
  */
 export function alignPieceToPort(
   localPort: PortDef,
   target: WorldPort,
 ): { position: [number, number, number]; rotation: [number, number, number, number] } {
+  if (localPort.kind === 'interlock' && target.kind === 'interlock') {
+    const targetHub = new THREE.Vector3(...target.direction).normalize()
+    const helper =
+      Math.abs(targetHub.dot(new THREE.Vector3(0, 1, 0))) < 0.85
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(1, 0, 0)
+    const newHub = new THREE.Vector3().crossVectors(targetHub, helper).normalize()
+    const localHub = new THREE.Vector3(...localPort.direction).normalize()
+    const rotation = new THREE.Quaternion().setFromUnitVectors(localHub, newHub)
+    const localPos = new THREE.Vector3(...localPort.position).applyQuaternion(rotation)
+    const targetPos = new THREE.Vector3(...target.position)
+    const position = targetPos.sub(localPos)
+    return {
+      position: [position.x, position.y, position.z],
+      rotation: tupleFromQuat(rotation),
+    }
+  }
+
   const localDir = new THREE.Vector3(...localPort.direction).normalize()
   const targetDir = new THREE.Vector3(...target.direction).normalize().multiplyScalar(-1)
 
@@ -125,7 +146,8 @@ export function findBestSnap(
     for (const target of freePorts) {
       const compatible =
         (localPort.kind === 'rod-end' && target.kind === 'socket') ||
-        (localPort.kind === 'socket' && target.kind === 'rod-end')
+        (localPort.kind === 'socket' && target.kind === 'rod-end') ||
+        (localPort.kind === 'interlock' && target.kind === 'interlock')
       if (!compatible) continue
 
       const pose = alignPieceToPort(localPort, target)

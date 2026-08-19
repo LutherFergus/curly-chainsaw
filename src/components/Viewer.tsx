@@ -19,7 +19,7 @@ export function Viewer() {
         <span>Drag to orbit</span>
         <span>Scroll to zoom</span>
         <span>Click grid to place</span>
-        <span>Yellow / cyan dots = open sockets & rod ends</span>
+        <span>Yellow = open C-clips · Cyan = rod ends · Orange = center slot for 3D joins</span>
       </div>
     </div>
   )
