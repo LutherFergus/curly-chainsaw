@@ -10,6 +10,12 @@ function createId(): string {
   return `piece-${nextId++}`
 }
 
+interface Snapshot {
+  pieces: PlacedPiece[]
+  connections: Connection[]
+  selectedPieceId: string | null
+}
+
 interface BuilderState {
   pieces: PlacedPiece[]
   connections: Connection[]
@@ -19,6 +25,9 @@ interface BuilderState {
   placementMode: PlacementMode
   cameraNavMode: CameraNavMode
   menuOpen: boolean
+  toolsOpen: boolean
+  past: Snapshot[]
+  future: Snapshot[]
   ghost: {
     catalogId: string
     position: [number, number, number]
@@ -35,6 +44,8 @@ interface BuilderState {
   toggleCameraNavMode: () => void
   setMenuOpen: (open: boolean) => void
   toggleMenu: () => void
+  setToolsOpen: (open: boolean) => void
+  toggleTools: () => void
   selectPiece: (id: string | null) => void
   updateGhost: (point: THREE.Vector3) => void
   clearGhost: () => void
@@ -42,9 +53,30 @@ interface BuilderState {
   deleteSelected: () => void
   clearAll: () => void
   rotateSelectedY: (deltaRad: number) => void
+  undo: () => void
+  redo: () => void
 }
 
 const identityRotation: [number, number, number, number] = [0, 0, 0, 1]
+const HISTORY_LIMIT = 80
+
+function snapshotOf(state: Pick<BuilderState, 'pieces' | 'connections' | 'selectedPieceId'>): Snapshot {
+  return {
+    pieces: state.pieces.map((p) => ({ ...p, position: [...p.position], rotation: [...p.rotation] })),
+    connections: state.connections.map((c) => ({ ...c })),
+    selectedPieceId: state.selectedPieceId,
+  }
+}
+
+function withHistory(
+  get: () => BuilderState,
+  set: (partial: Partial<BuilderState>) => void,
+  mutate: (current: BuilderState) => Partial<BuilderState>,
+) {
+  const current = get()
+  const past = [...current.past, snapshotOf(current)].slice(-HISTORY_LIMIT)
+  set({ ...mutate(current), past, future: [] })
+}
 
 export const useBuilderStore = create<BuilderState>((set, get) => ({
   pieces: [],
@@ -55,6 +87,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   placementMode: 'single',
   cameraNavMode: 'fly',
   menuOpen: true,
+  toolsOpen: true,
+  past: [],
+  future: [],
   ghost: null,
 
   selectCatalog: (id) =>
@@ -62,7 +97,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       selectedCatalogId: id,
       tool: id ? 'place' : get().tool,
       selectedPieceId: null,
-      // Selecting a piece collapses the palette until placement.
       menuOpen: id ? false : true,
       ghost: id ? get().ghost : null,
     }),
@@ -79,8 +113,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     set({ cameraNavMode: get().cameraNavMode === 'fly' ? 'pan' : 'fly' }),
 
   setMenuOpen: (open) => set({ menuOpen: open }),
-
   toggleMenu: () => set({ menuOpen: !get().menuOpen }),
+  setToolsOpen: (open) => set({ toolsOpen: open }),
+  toggleTools: () => set({ toolsOpen: !get().toolsOpen }),
 
   selectPiece: (id) => set({ selectedPieceId: id, tool: 'select' }),
 
@@ -130,7 +165,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   clearGhost: () => set({ ghost: null }),
 
   placeGhost: () => {
-    const { ghost, pieces, connections, placementMode } = get()
+    const current = get()
+    const { ghost, pieces, connections, placementMode } = current
     if (!ghost) return
 
     const id = createId()
@@ -152,39 +188,37 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     }
 
     const single = placementMode === 'single'
-    set({
+    withHistory(get, set, () => ({
       pieces: [...pieces, nextPiece],
       connections: nextConnections,
       selectedPieceId: id,
-      // Always reopen the palette after a place.
       menuOpen: true,
-      // Single mode: clear the active piece so the next place requires a new pick.
       selectedCatalogId: single ? null : ghost.catalogId,
       ghost: single ? null : { ...ghost, snap: null },
-      tool: 'place',
-    })
+      tool: 'place' as const,
+    }))
   },
 
   deleteSelected: () => {
     const { selectedPieceId, pieces, connections } = get()
     if (!selectedPieceId) return
-    set({
+    withHistory(get, set, () => ({
       pieces: pieces.filter((p) => p.id !== selectedPieceId),
       connections: connections.filter(
         (c) => c.aPieceId !== selectedPieceId && c.bPieceId !== selectedPieceId,
       ),
       selectedPieceId: null,
-    })
+    }))
   },
 
   clearAll: () =>
-    set({
+    withHistory(get, set, () => ({
       pieces: [],
       connections: [],
       selectedPieceId: null,
       ghost: null,
       menuOpen: true,
-    }),
+    })),
 
   rotateSelectedY: (deltaRad) => {
     const { selectedPieceId, pieces, connections } = get()
@@ -194,7 +228,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     )
     if (locked) return
 
-    set({
+    withHistory(get, set, () => ({
       pieces: pieces.map((p) => {
         if (p.id !== selectedPieceId) return p
         const q = new THREE.Quaternion(p.rotation[0], p.rotation[1], p.rotation[2], p.rotation[3])
@@ -202,6 +236,34 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
         q.premultiply(yaw)
         return { ...p, rotation: [q.x, q.y, q.z, q.w] }
       }),
+    }))
+  },
+
+  undo: () => {
+    const { past, future, pieces, connections, selectedPieceId } = get()
+    const previous = past[past.length - 1]
+    if (!previous) return
+    set({
+      past: past.slice(0, -1),
+      future: [...future, snapshotOf({ pieces, connections, selectedPieceId })],
+      pieces: previous.pieces,
+      connections: previous.connections,
+      selectedPieceId: previous.selectedPieceId,
+      ghost: null,
+    })
+  },
+
+  redo: () => {
+    const { past, future, pieces, connections, selectedPieceId } = get()
+    const next = future[future.length - 1]
+    if (!next) return
+    set({
+      future: future.slice(0, -1),
+      past: [...past, snapshotOf({ pieces, connections, selectedPieceId })],
+      pieces: next.pieces,
+      connections: next.connections,
+      selectedPieceId: next.selectedPieceId,
+      ghost: null,
     })
   },
 }))

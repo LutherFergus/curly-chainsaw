@@ -22,54 +22,100 @@
   display: block;
 }
 
-.palette {
+.rail {
   position: absolute;
   top: 0;
-  left: 0;
   bottom: 0;
   z-index: 4;
+  width: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.left-rail {
+  left: 0;
+}
+
+.right-rail {
+  right: 0;
+}
+
+.rail-body {
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4.25rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.45rem;
-  width: 4.25rem;
   padding: 0.7rem 0.45rem 0.85rem;
-  border-right: 1px solid rgba(33, 37, 41, 0.08);
+  box-sizing: border-box;
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(14px);
-  box-sizing: border-box;
+  transition: transform 220ms ease;
 }
 
-.palette-toggle {
-  flex: 0 0 auto;
-  width: 2.65rem;
-  height: 2.65rem;
-  border: 1px solid rgba(33, 37, 41, 0.12);
-  border-radius: 0.7rem;
-  background: #0b7285;
-  color: #fff;
+.left-rail .rail-body {
+  left: 0;
+  border-right: 1px solid rgba(33, 37, 41, 0.08);
+}
+
+.right-rail .rail-body {
+  right: 0;
+  border-left: 1px solid rgba(33, 37, 41, 0.08);
+}
+
+.left-rail.collapsed .rail-body {
+  transform: translateX(-100%);
+}
+
+.right-rail.collapsed .rail-body {
+  transform: translateX(100%);
+}
+
+.edge-chevron {
+  pointer-events: auto;
+  position: absolute;
+  top: 50%;
+  width: 1.55rem;
+  height: 3.1rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: rgba(11, 114, 133, 0.5);
   cursor: pointer;
   display: grid;
   place-items: center;
-  transition: transform 160ms ease, background 160ms ease;
+  transform: translateY(-50%);
+  transition: color 150ms ease, left 220ms ease, right 220ms ease;
 }
 
-.palette-toggle:hover {
-  transform: translateY(-1px);
-  background: #099268;
+.left-rail .edge-chevron {
+  left: 0.1rem;
 }
 
-.palette-toggle-bars {
-  display: grid;
-  gap: 0.22rem;
-  width: 1rem;
+.left-rail.open .edge-chevron {
+  left: 4.3rem;
 }
 
-.palette-toggle-bars i {
+.right-rail .edge-chevron {
+  right: 0.1rem;
+}
+
+.right-rail.open .edge-chevron {
+  right: 4.3rem;
+}
+
+.edge-chevron:hover {
+  color: rgba(11, 114, 133, 0.95);
+}
+
+.chevron-icon {
+  width: 1.25rem;
+  height: 1.25rem;
   display: block;
-  height: 2px;
-  border-radius: 2px;
-  background: #fff;
 }
 
 .mode-btn {
@@ -97,7 +143,7 @@
   transform: translateY(-1px);
 }
 
-.palette-column {
+.rail-stack {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
@@ -110,15 +156,19 @@
   scrollbar-width: thin;
 }
 
-.icon-btn {
+.icon-btn,
+.tool-btn {
   flex: 0 0 auto;
   width: 100%;
-  aspect-ratio: 1;
   border: 1px solid transparent;
   border-radius: 0.65rem;
   background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
   cursor: pointer;
   padding: 0.15rem;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
   transition:
     transform 150ms ease,
     border-color 150ms ease,
@@ -126,16 +176,38 @@
     box-shadow 150ms ease;
 }
 
-.icon-btn:hover {
+.icon-btn {
+  aspect-ratio: 1;
+}
+
+.tool-btn {
+  min-height: 2.55rem;
+}
+
+.icon-btn:hover,
+.tool-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   background: #fff;
   border-color: rgba(11, 114, 133, 0.25);
 }
 
-.icon-btn.active {
-  background: #fff;
-  border-color: rgba(11, 114, 133, 0.5);
+.icon-btn.active,
+.tool-btn.active {
+  background: #0b7285;
+  border-color: #0b7285;
+  color: #fff;
   box-shadow: 0 6px 14px rgba(11, 114, 133, 0.14);
+}
+
+.tool-btn.danger:hover:not(:disabled) {
+  background: #fff5f5;
+  border-color: #fa5252;
+  color: #c92a2a;
+}
+
+.tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .piece-icon {
@@ -144,115 +216,11 @@
   display: block;
 }
 
-.palette-active-chip {
-  flex: 0 0 auto;
-  width: 100%;
-  aspect-ratio: 1;
-  padding: 0.15rem;
-  border: 1px solid rgba(11, 114, 133, 0.35);
-  border-radius: 0.65rem;
-  background: rgba(255, 255, 255, 0.95);
-  cursor: pointer;
-  animation: rise-in 0.25s ease both;
-}
-
-.palette.collapsed {
-  width: 4.25rem;
-}
-
-.toolbar {
-  position: absolute;
-  top: 0.75rem;
-  left: 5.1rem;
-  right: 0.75rem;
-  z-index: 3;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem 0.75rem;
-  padding: 0.55rem 0.75rem;
-  border: 1px solid rgba(33, 37, 41, 0.08);
-  border-radius: 0.85rem;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(12px);
-  animation: rise-in 0.45s ease both;
-}
-
-.tool-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.tool-group.end {
-  margin-left: auto;
-}
-
-.toolbar button {
-  border: 1px solid rgba(33, 37, 41, 0.12);
-  background: rgba(255, 255, 255, 0.88);
-  color: var(--ink);
-  border-radius: 0.6rem;
-  padding: 0.4rem 0.7rem;
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 150ms ease,
-    border-color 150ms ease,
-    transform 150ms ease;
-}
-
-.toolbar button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  border-color: rgba(11, 114, 133, 0.35);
-}
-
-.toolbar button.active {
-  background: #0b7285;
-  border-color: #0b7285;
-  color: #fff;
-}
-
-.toolbar button.danger:hover:not(:disabled) {
-  background: #fff5f5;
-  border-color: #fa5252;
-  color: #c92a2a;
-}
-
-.toolbar button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.status-line {
-  flex: 1 1 10rem;
-  min-width: 0;
-}
-
-.status-line p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.86rem;
-}
-
-.status-line strong {
-  color: var(--ink);
-}
-
-.meta {
-  font-size: 0.78rem;
-  color: var(--muted);
-  padding-left: 0.25rem;
-}
-
 .view-cube {
   position: absolute;
-  right: 0.35rem;
+  right: 2rem;
   bottom: 0.35rem;
-  z-index: 4;
+  z-index: 3;
   width: 7.25rem;
   height: 8.1rem;
   background: transparent;
@@ -262,6 +230,11 @@
   touch-action: none;
   user-select: none;
   pointer-events: none;
+}
+
+.right-rail.open ~ .view-cube,
+.app-shell:has(.right-rail.open) .view-cube {
+  right: 5.1rem;
 }
 
 .view-cube canvas {
@@ -296,18 +269,5 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@media (max-width: 900px) {
-  .toolbar {
-    left: 4.85rem;
-    top: 0.55rem;
-    right: 0.55rem;
-    padding: 0.45rem 0.55rem;
-  }
-
-  .tool-group.end {
-    margin-left: 0;
   }
 }

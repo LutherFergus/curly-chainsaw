@@ -1,5 +1,5 @@
 import { Sidebar } from './components/Sidebar'
-import { Toolbar } from './components/Toolbar'
+import { BuildMenu } from './components/BuildMenu'
 import { Viewer } from './components/Viewer'
 import { ViewCube } from './components/ViewCube'
 import './App.css'
@@ -9,7 +9,7 @@ function App() {
     <div className="app-shell">
       <Viewer />
       <Sidebar />
-      <Toolbar />
+      <BuildMenu />
       <ViewCube />
     </div>
   )
