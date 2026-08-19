@@ -16,10 +16,10 @@ const ROD_SPECS = [
   { id: 'rod-white', name: 'White Rod', color: '#f8f9fa', length: 8.5, description: 'Longest standard rod.' },
 ] as const
 
-/** Blue plate clip angles (7 clips; 8th position is the interlock notch). */
-export const BLUE_CLIP_ANGLES = [0, 45, 90, 135, 180, 225, 270] as const
-/** Silver half clip angles (5 clips along a 180° arc). */
-export const SILVER_CLIP_ANGLES = [0, 45, 90, 135, 180] as const
+/** Full slotted plate: 7 C-clips; 8th position is the interlock notch. */
+export const FULL_CLIP_ANGLES = [0, 45, 90, 135, 180, 225, 270] as const
+/** Half slotted plate: 5 C-clips along a 180° arc. */
+export const HALF_CLIP_ANGLES = [0, 45, 90, 135, 180] as const
 
 function rodPorts(length: number): PortDef[] {
   const half = length / 2
@@ -45,7 +45,7 @@ function clipsAroundY(angles: readonly number[], prefix: string): PortDef[] {
   })
 }
 
-/** Clips around hub axis Z (connector standing in XY) — second plate after a 90° slide join. */
+/** Clips around hub axis Z (second plate after a 90° slide join). */
 function clipsAroundZ(angles: readonly number[], prefix: string): PortDef[] {
   const r = SOCKET_RADIUS
   return angles.map((deg, i) => {
@@ -61,13 +61,12 @@ function clipsAroundZ(angles: readonly number[], prefix: string): PortDef[] {
   })
 }
 
-/** Center slot/rail used to slide two connectors together perpendicularly. */
+/** Center slot/rail — only on slotted connectors that can combine. */
 function interlockPort(): PortDef {
   return {
     id: 'interlock',
     kind: 'interlock',
     position: [0, 0, 0],
-    // Hub-axis normal: partner plate rotates 90° around an in-plane axis.
     direction: [0, 1, 0],
   }
 }
@@ -86,110 +85,97 @@ const connectors: CatalogPiece[] = [
     id: 'conn-orange-straight',
     name: 'Straight Connector',
     category: 'connectors',
-    description: '180° in-line C-clips.',
+    description: '180° in-line C-clips. Does not combine with other connectors.',
     color: '#fd7e14',
     variant: 'plate',
-    ports: [...clipsAroundY([0, 180], 's'), interlockPort()],
+    ports: clipsAroundY([0, 180], 's'),
   },
   {
-    id: 'conn-red-3',
-    name: '3-Way Connector',
+    id: 'conn-90',
+    name: '90 Connector',
     category: 'connectors',
-    description: 'Classic red T — three C-clips.',
+    description: 'Same-plane clips at 0°, 45°, and 90°. Does not combine with other connectors.',
     color: '#fa5252',
     variant: 'plate',
-    ports: [...clipsAroundY([0, 90, 180], 's'), interlockPort()],
-  },
-  {
-    id: 'conn-green-4',
-    name: '4-Way Connector',
-    category: 'connectors',
-    description: 'Classic green plus hub.',
-    color: '#40c057',
-    variant: 'plate',
-    ports: [...clipsAroundY([0, 90, 180, 270], 's'), interlockPort()],
+    ports: clipsAroundY([0, 45, 90], 's'),
   },
   {
     id: 'conn-yellow-5',
     name: '5-Way Connector',
     category: 'connectors',
-    description: 'Yellow flat hub with five C-clips.',
+    description: 'Yellow flat hub with five C-clips. Does not combine with other connectors.',
     color: '#fcc419',
     variant: 'plate',
-    ports: [...clipsAroundY([0, 45, 90, 135, 180], 's'), interlockPort()],
+    ports: clipsAroundY([0, 45, 90, 135, 180], 's'),
   },
   {
     id: 'conn-white-8',
     name: '8-Way Connector',
     category: 'connectors',
-    description: 'White flat hub — clips every 45°.',
+    description: 'White flat hub — clips every 45°. Does not combine with other connectors.',
     color: '#f8f9fa',
     accent: '#ced4da',
     variant: 'plate',
-    ports: [
-      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 's'),
-      interlockPort(),
-    ],
+    ports: clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 's'),
   },
   {
-    id: 'conn-blue-slot',
-    name: 'Blue Slotted Connector',
+    id: 'conn-full-slot',
+    name: 'Full Slotted Connector',
     category: 'connectors',
     description:
-      '7 C-clips plus a center notch. Slide another connector through the notch for 3D hubs.',
+      '7 C-clips plus a center notch. Combines with other slotted connectors for 3D hubs.',
     color: '#1c7ed6',
-    variant: 'plate',
-    ports: [...clipsAroundY(BLUE_CLIP_ANGLES, 's'), interlockPort()],
+    variant: 'full',
+    ports: [...clipsAroundY(FULL_CLIP_ANGLES, 's'), interlockPort()],
   },
   {
-    id: 'conn-silver-half',
-    name: 'Silver Half Connector',
+    id: 'conn-half-slot',
+    name: 'Half Slotted Connector',
     category: 'connectors',
     description:
-      '5 C-clips on a half-circle with a rail. Slides into a blue notch (or another silver) for corners.',
+      '5 C-clips on a half-circle with a rail. Combines with other slotted connectors for 3D hubs.',
     color: '#adb5bd',
     accent: '#868e96',
     variant: 'half',
-    ports: [...clipsAroundY(SILVER_CLIP_ANGLES, 's'), interlockPort()],
+    ports: [...clipsAroundY(HALF_CLIP_ANGLES, 's'), interlockPort()],
   },
   {
-    id: 'hub-ball',
-    name: 'Ball Hub (2× Blue)',
+    id: 'hub-double-full',
+    name: 'Double Full',
     category: 'connectors',
-    description:
-      'Two blue slotted connectors slid together — 8 clip directions on each of 2 axes.',
+    description: 'Two full slotted connectors slid together — clip options on 2 axes.',
     color: '#1c7ed6',
-    variant: 'ball',
+    variant: 'double-full',
     ports: [
       ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'a'),
       ...clipsAroundZ([0, 45, 90, 135, 180, 225, 270, 315], 'b'),
     ],
   },
   {
-    id: 'hub-mixed',
-    name: 'Mixed Hub (Silver + Blue)',
+    id: 'hub-full-half',
+    name: 'Full/Half Combo',
     category: 'connectors',
-    description: 'Silver half slid into a blue — 5 clips on one axis, 8 on the other.',
+    description: 'Full slotted + half slotted joined — 8 options on one axis, 5 on the other.',
     color: '#1c7ed6',
     accent: '#adb5bd',
-    variant: 'mixed',
+    variant: 'full-half',
     ports: [
-      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'blue'),
-      ...clipsAroundZ(SILVER_CLIP_ANGLES, 'silver'),
+      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'full'),
+      ...clipsAroundZ(HALF_CLIP_ANGLES, 'half'),
     ],
   },
   {
-    id: 'hub-corner',
-    name: '3D Corner (2× Silver)',
+    id: 'hub-half-half',
+    name: 'Half/Half Combo Connector',
     category: 'connectors',
     description:
-      'Two silver halves slid together — 5 clips on each of 2 axes, open as a corner.',
+      'Two half slotted connectors slid together — 5 options on each of 2 axes, open as a corner.',
     color: '#adb5bd',
     accent: '#868e96',
-    variant: 'corner',
+    variant: 'half-half',
     ports: [
-      ...clipsAroundY(SILVER_CLIP_ANGLES, 'a'),
-      ...clipsAroundZ(SILVER_CLIP_ANGLES, 'b'),
+      ...clipsAroundY(HALF_CLIP_ANGLES, 'a'),
+      ...clipsAroundZ(HALF_CLIP_ANGLES, 'b'),
     ],
   },
 ]

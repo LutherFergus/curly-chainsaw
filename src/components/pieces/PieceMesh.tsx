@@ -2,9 +2,9 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
 import {
-  BLUE_CLIP_ANGLES,
+  FULL_CLIP_ANGLES,
+  HALF_CLIP_ANGLES,
   ROD_RADIUS_SCENE,
-  SILVER_CLIP_ANGLES,
   SOCKET_RADIUS,
 } from '../../data/catalog'
 
@@ -152,12 +152,14 @@ function ConnectorPlate({
   accent,
   angles,
   half = false,
+  slotted = false,
   color,
 }: {
   mat: MatProps
   accent?: string
   angles: readonly number[]
   half?: boolean
+  slotted?: boolean
   color?: string
 }) {
   const plateMat = color ? { ...mat, color } : mat
@@ -194,13 +196,12 @@ function ConnectorPlate({
         </group>
       ))}
 
-      {/* Light webbing rings between hub and clips */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.18, 0.012, 8, 28]} />
         <Plastic mat={plateMat} />
       </mesh>
 
-      <InterlockSlot mat={plateMat} half={half} />
+      {slotted && <InterlockSlot mat={plateMat} half={half} />}
 
       {half && (
         <mesh position={[0, 0, -0.12]} rotation={[0, 0, 0]}>
@@ -227,37 +228,52 @@ function AssembledHub({
   mat: MatProps
   accent?: string
 }) {
-  const blue = '#1c7ed6'
-  const silver = accent ?? '#adb5bd'
+  const fullColor = '#1c7ed6'
+  const halfColor = accent ?? '#adb5bd'
 
-  if (variant === 'ball') {
+  if (variant === 'double-full') {
     return (
       <group>
-        <ConnectorPlate mat={mat} color={blue} angles={[0, 45, 90, 135, 180, 225, 270, 315]} />
+        <ConnectorPlate
+          mat={mat}
+          color={fullColor}
+          angles={[0, 45, 90, 135, 180, 225, 270, 315]}
+          slotted
+        />
         <group rotation={[Math.PI / 2, 0, 0]}>
-          <ConnectorPlate mat={mat} color={blue} angles={[0, 45, 90, 135, 180, 225, 270, 315]} />
+          <ConnectorPlate
+            mat={mat}
+            color={fullColor}
+            angles={[0, 45, 90, 135, 180, 225, 270, 315]}
+            slotted
+          />
         </group>
       </group>
     )
   }
 
-  if (variant === 'mixed') {
+  if (variant === 'full-half') {
     return (
       <group>
-        <ConnectorPlate mat={mat} color={blue} angles={[0, 45, 90, 135, 180, 225, 270, 315]} />
+        <ConnectorPlate
+          mat={mat}
+          color={fullColor}
+          angles={[0, 45, 90, 135, 180, 225, 270, 315]}
+          slotted
+        />
         <group rotation={[Math.PI / 2, 0, 0]}>
-          <ConnectorPlate mat={mat} color={silver} angles={SILVER_CLIP_ANGLES} half />
+          <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
         </group>
       </group>
     )
   }
 
-  if (variant === 'corner') {
+  if (variant === 'half-half') {
     return (
       <group>
-        <ConnectorPlate mat={mat} color={silver} angles={SILVER_CLIP_ANGLES} half />
+        <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
         <group rotation={[Math.PI / 2, 0, 0]}>
-          <ConnectorPlate mat={mat} color={silver} angles={SILVER_CLIP_ANGLES} half />
+          <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
         </group>
       </group>
     )
@@ -284,10 +300,10 @@ function ConnectorMesh({
       const yaw = (Math.atan2(port.direction[0], port.direction[2]) * 180) / Math.PI
       list.push(((yaw % 360) + 360) % 360)
     }
-    return list.length ? list : [...BLUE_CLIP_ANGLES]
+    return list.length ? list : [...FULL_CLIP_ANGLES]
   }, [catalog])
 
-  if (variant === 'ball' || variant === 'mixed' || variant === 'corner') {
+  if (variant === 'double-full' || variant === 'full-half' || variant === 'half-half') {
     return <AssembledHub variant={variant} mat={mat} accent={catalog.accent} />
   }
 
@@ -296,8 +312,20 @@ function ConnectorMesh({
       <ConnectorPlate
         mat={mat}
         accent={catalog.accent}
-        angles={SILVER_CLIP_ANGLES}
+        angles={HALF_CLIP_ANGLES}
         half
+        slotted
+      />
+    )
+  }
+
+  if (variant === 'full') {
+    return (
+      <ConnectorPlate
+        mat={mat}
+        accent={catalog.accent}
+        angles={FULL_CLIP_ANGLES}
+        slotted
       />
     )
   }
