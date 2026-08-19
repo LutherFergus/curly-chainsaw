@@ -1,5 +1,12 @@
 import * as THREE from 'three'
-import type { CatalogPiece, Connection, PlacedPiece, PortDef, WorldPort } from '../types/knex'
+import type {
+  CatalogPiece,
+  Connection,
+  ConnectorRotateMode,
+  PlacedPiece,
+  PortDef,
+  WorldPort,
+} from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
 
 /** Max cursor distance to a free port for snap to engage. */
@@ -7,8 +14,8 @@ export const SNAP_DISTANCE = 1.75
 export const GRID_SIZE = 0.5
 /** K'NEX clips sit on 45° detents. */
 export const KNEX_DETENT = Math.PI / 4
-const POSE_POS_TOL = 0.16
-const POSE_DIR_OPPOSITE = -0.62
+const POSE_POS_TOL = 0.08
+const POSE_DIR_OPPOSITE = -0.9
 const POSE_DIR_PERP = 0.5
 const SLOT_ALIGN = 0.82
 
@@ -214,15 +221,6 @@ function canonicalRotation(
   return tupleFromQuat(q)
 }
 
-function poseKey(
-  position: [number, number, number],
-  rotation: [number, number, number, number],
-): string {
-  const q = canonicalRotation(rotation)
-  const r = (n: number) => n.toFixed(2)
-  return `${r(position[0])}|${r(position[1])}|${r(position[2])}|${r(q[0])}|${r(q[1])}|${r(q[2])}|${r(q[3])}`
-}
-
 function poseDistance(
   a: { position: [number, number, number]; rotation: [number, number, number, number] },
   b: { position: [number, number, number]; rotation: [number, number, number, number] },
@@ -250,26 +248,9 @@ export function rotatePoseAroundAxis(
   }
 }
 
-export function alignPieceToPortWithTwist(
-  localPort: PortDef,
-  target: WorldPort,
-  twistRad: number,
-): { position: [number, number, number]; rotation: [number, number, number, number] } {
-  const base = alignPieceToPort(localPort, target)
-  if (Math.abs(twistRad) < 1e-8) return base
-  const axis = new THREE.Vector3(...target.direction).normalize()
-  const pivot = new THREE.Vector3(...target.position)
-  return rotatePoseAroundAxis(
-    { id: '', catalogId: '', position: base.position, rotation: base.rotation },
-    axis,
-    pivot,
-    twistRad,
-  )
-}
-
 /**
  * Rebind this piece's connections after a pose change.
- * Returns null if any existing connection can no longer reach its partner.
+ * Each partner keeps a unique port — two rods cannot claim the same clip.
  */
 export function retargetConnectorConnections(
   piece: PlacedPiece,
@@ -278,7 +259,15 @@ export function retargetConnectorConnections(
   connections: Connection[],
 ): Connection[] | null {
   const next = connections.map((c) => ({ ...c }))
-  for (const conn of next) {
+  const jobs: {
+    index: number
+    mineIsA: boolean
+    partner: PlacedPiece
+    target: WorldPort
+  }[] = []
+
+  for (let index = 0; index < next.length; index++) {
+    const conn = next[index]
     if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
     const mineIsA = conn.aPieceId === piece.id
     const partner = pieces.find((p) => p.id === (mineIsA ? conn.bPieceId : conn.aPieceId))
@@ -288,27 +277,54 @@ export function retargetConnectorConnections(
       (p) => p.id === (mineIsA ? conn.bPortId : conn.aPortId),
     )
     if (!partnerCatalog || !partnerPort) return null
+    jobs.push({
+      index,
+      mineIsA,
+      partner,
+      target: worldPort(partner, partnerPort, true),
+    })
+  }
 
-    const target = worldPort(partner, partnerPort, true)
-    const targetDir = new THREE.Vector3(...target.direction)
-    let best: { id: string; dist: number } | null = null
-
+  const candidatesFor = (job: (typeof jobs)[number], used: Set<string>) => {
+    const targetDir = new THREE.Vector3(...job.target.direction)
+    const options: { id: string; dist: number }[] = []
     for (const local of catalog.ports) {
-      if (!portsCompatible(local.kind, target.kind)) continue
+      if (used.has(local.id)) continue
+      if (!portsCompatible(local.kind, job.target.kind)) continue
       const wp = worldPort(piece, local, true)
-      const dist = new THREE.Vector3(...wp.position).distanceTo(new THREE.Vector3(...target.position))
+      const dist = new THREE.Vector3(...wp.position).distanceTo(
+        new THREE.Vector3(...job.target.position),
+      )
       if (dist > POSE_POS_TOL) continue
       if (!directionsMatch(local.kind, new THREE.Vector3(...wp.direction), targetDir)) continue
       if (local.kind === 'interlock') {
-        const aligned = Math.abs(slotDirection(piece).dot(slotDirection(partner)))
+        const aligned = Math.abs(slotDirection(piece).dot(slotDirection(job.partner)))
         if (aligned < SLOT_ALIGN) continue
       }
-      if (!best || dist < best.dist) best = { id: local.id, dist }
+      options.push({ id: local.id, dist })
     }
+    options.sort((a, b) => a.dist - b.dist)
+    return options
+  }
 
-    if (!best) return null
-    if (mineIsA) conn.aPortId = best.id
-    else conn.bPortId = best.id
+  const assignment: string[] = new Array(jobs.length)
+  const search = (i: number, used: Set<string>): boolean => {
+    if (i === jobs.length) return true
+    for (const option of candidatesFor(jobs[i], used)) {
+      used.add(option.id)
+      assignment[i] = option.id
+      if (search(i + 1, used)) return true
+      used.delete(option.id)
+    }
+    return false
+  }
+
+  if (!search(0, new Set())) return null
+
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i]
+    if (job.mineIsA) next[job.index].aPortId = assignment[i]
+    else next[job.index].bPortId = assignment[i]
   }
   return next
 }
@@ -319,76 +335,117 @@ export interface NextConnectorPose {
   connections: Connection[]
 }
 
+const HUB_ALIGN = 0.92
+
 /**
- * Next discrete K'NEX orientation for a connector: 45° detents around the
- * hub, or around a connected rod so clips stay usable.
+ * Working-plane normal for a connector: the plate that currently holds more
+ * rods, otherwise the primary hub (local Y).
  */
-export function nextUsableConnectorPose(
+export function connectorWorkNormal(
   piece: PlacedPiece,
+  catalog: CatalogPiece,
+  connections: Connection[],
+): THREE.Vector3 {
+  const q = quatFromTuple(piece.rotation)
+  let yPlane = 0
+  let zPlane = 0
+  for (const conn of connections) {
+    if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
+    const portId = conn.aPieceId === piece.id ? conn.aPortId : conn.bPortId
+    const port = catalog.ports.find((p) => p.id === portId)
+    if (!port || port.kind !== 'socket') continue
+    if (Math.abs(port.direction[1]) < 0.35) yPlane += 1
+    else zPlane += 1
+  }
+  const local = zPlane > yPlane ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0)
+  return local.applyQuaternion(q).normalize()
+}
+
+function connectedRodDirections(
+  piece: PlacedPiece,
+  catalog: CatalogPiece,
   pieces: PlacedPiece[],
   connections: Connection[],
-): NextConnectorPose | null {
-  const catalog = getCatalogPiece(piece.catalogId)
-  if (!catalog || catalog.category !== 'connectors') return null
-
-  const involved = connections.filter((c) => c.aPieceId === piece.id || c.bPieceId === piece.id)
-  const raw: { position: [number, number, number]; rotation: [number, number, number, number] }[] =
-    []
-
-  const q = quatFromTuple(piece.rotation)
-  const hub = new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize()
-  const origin = new THREE.Vector3(...piece.position)
-  const hubAxes = [hub]
-  if (
-    catalog.variant === 'double-full' ||
-    catalog.variant === 'full-half' ||
-    catalog.variant === 'half-half'
-  ) {
-    hubAxes.push(new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize())
-  }
-
-  for (const axis of hubAxes) {
-    for (let i = 1; i <= 8; i++) {
-      raw.push(rotatePoseAroundAxis(piece, axis, origin, i * KNEX_DETENT))
-    }
-  }
-
-  const sockets = catalog.ports.filter((p) => p.kind === 'socket')
-  const pieceById = new Map(pieces.map((p) => [p.id, p]))
-
-  for (const conn of involved) {
+): THREE.Vector3[] {
+  const dirs: THREE.Vector3[] = []
+  const byId = new Map(pieces.map((p) => [p.id, p]))
+  for (const conn of connections) {
+    if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
     const mineIsA = conn.aPieceId === piece.id
     const myPort = catalog.ports.find((p) => p.id === (mineIsA ? conn.aPortId : conn.bPortId))
-    const partner = pieceById.get(mineIsA ? conn.bPieceId : conn.aPieceId)
+    const partner = byId.get(mineIsA ? conn.bPieceId : conn.aPieceId)
     const partnerCatalog = partner ? getCatalogPiece(partner.catalogId) : undefined
     const partnerPort = partnerCatalog?.ports.find(
       (p) => p.id === (mineIsA ? conn.bPortId : conn.aPortId),
     )
     if (!myPort || !partner || !partnerPort) continue
-
-    const target = worldPort(partner, partnerPort, true)
-    const pivot = new THREE.Vector3(...target.position)
-    const axis = new THREE.Vector3(...target.direction).normalize()
-    for (let i = 1; i <= 8; i++) {
-      raw.push(rotatePoseAroundAxis(piece, axis, pivot, i * KNEX_DETENT))
-    }
-
-    if (myPort.kind === 'socket' && partnerPort.kind === 'rod-end') {
-      for (const socket of sockets) {
-        for (let t = 0; t < 8; t++) {
-          raw.push(alignPieceToPortWithTwist(socket, target, t * KNEX_DETENT))
-        }
-      }
-    }
+    if (myPort.kind !== 'socket' || partnerPort.kind !== 'rod-end') continue
+    dirs.push(new THREE.Vector3(...worldPort(partner, partnerPort, true).direction).normalize())
   }
+  return dirs
+}
 
-  const seen = new Set<string>()
-  const valid: NextConnectorPose[] = []
-  for (const pose of raw) {
-    const key = poseKey(pose.position, pose.rotation)
-    if (seen.has(key)) continue
-    seen.add(key)
+function projectOnPlane(axis: THREE.Vector3, normal: THREE.Vector3): THREE.Vector3 | null {
+  const projected = axis.clone().sub(normal.clone().multiplyScalar(axis.dot(normal)))
+  if (projected.lengthSq() < 1e-6) return null
+  return projected.normalize()
+}
+
+function oppositeAxis(
+  piece: PlacedPiece,
+  workNormal: THREE.Vector3,
+  rodDirs: THREE.Vector3[],
+): THREE.Vector3 {
+  if (rodDirs.length === 1) {
+    const alongRod = projectOnPlane(rodDirs[0], workNormal)
+    if (alongRod) return alongRod
+  }
+  const localZ = new THREE.Vector3(0, 0, 1)
+    .applyQuaternion(quatFromTuple(piece.rotation))
+  const fromClip = projectOnPlane(localZ, workNormal)
+  if (fromClip) return fromClip
+  const worldUp = new THREE.Vector3(0, 1, 0)
+  const fromUp = projectOnPlane(worldUp, workNormal)
+  if (fromUp) return fromUp
+  return projectOnPlane(new THREE.Vector3(1, 0, 0), workNormal) ?? new THREE.Vector3(1, 0, 0)
+}
+
+function isCurrentPose(
+  piece: PlacedPiece,
+  pose: { position: [number, number, number]; rotation: [number, number, number, number] },
+): boolean {
+  return poseDistance(piece, pose) < 0.12
+}
+
+/**
+ * Next discrete K'NEX orientation for a connector.
+ * `in-plane` spins around the current working-plate normal and only keeps
+ * poses where every attached rod still has a clip. `opposite` tilts around
+ * an axis in that plate (typically a single rod) to change working plane.
+ */
+export function nextUsableConnectorPose(
+  piece: PlacedPiece,
+  pieces: PlacedPiece[],
+  connections: Connection[],
+  mode: ConnectorRotateMode = 'in-plane',
+): NextConnectorPose | null {
+  const catalog = getCatalogPiece(piece.catalogId)
+  if (!catalog || catalog.category !== 'connectors') return null
+
+  const workNormal = connectorWorkNormal(piece, catalog, connections)
+  const origin = new THREE.Vector3(...piece.position)
+  const rodDirs = connectedRodDirections(piece, catalog, pieces, connections)
+  const axis =
+    mode === 'in-plane' ? workNormal : oppositeAxis(piece, workNormal, rodDirs)
+
+  for (let i = 1; i <= 8; i++) {
+    const pose = rotatePoseAroundAxis(piece, axis, origin, -i * KNEX_DETENT)
+    if (isCurrentPose(piece, pose)) continue
     const nextPiece: PlacedPiece = { ...piece, ...pose }
+    const nextHub = connectorWorkNormal(nextPiece, catalog, connections)
+    const hubDot = Math.abs(workNormal.dot(nextHub))
+    if (mode === 'in-plane' && hubDot < HUB_ALIGN) continue
+    if (mode === 'opposite' && hubDot > HUB_ALIGN) continue
     const nextConnections = retargetConnectorConnections(
       nextPiece,
       catalog,
@@ -396,31 +453,12 @@ export function nextUsableConnectorPose(
       connections,
     )
     if (!nextConnections) continue
-    valid.push({
+    return {
       position: pose.position,
       rotation: canonicalRotation(pose.rotation),
       connections: nextConnections,
-    })
-  }
-
-  if (!valid.length) return null
-
-  const current = { position: piece.position, rotation: piece.rotation }
-  let closest = 0
-  let closestDist = Number.POSITIVE_INFINITY
-  for (let i = 0; i < valid.length; i++) {
-    const d = poseDistance(current, valid[i])
-    if (d < closestDist) {
-      closestDist = d
-      closest = i
     }
   }
 
-  const alreadyThere = closestDist < 0.12
-  const index = alreadyThere ? (closest + 1) % valid.length : closest
-  const next = valid[index]
-  if (alreadyThere && poseKey(next.position, next.rotation) === poseKey(piece.position, piece.rotation)) {
-    return null
-  }
-  return next
+  return null
 }

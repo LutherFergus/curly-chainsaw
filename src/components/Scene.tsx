@@ -53,7 +53,7 @@ function PlacedPieces() {
               if (dx * dx + dy * dy > 100) return
               e.stopPropagation()
               if (catalog.category === 'connectors') {
-                rotateConnector(piece.id)
+                rotateConnector(piece.id, 'in-plane')
                 return
               }
               selectPiece(piece.id)

@@ -33,6 +33,7 @@ export function BuildMenu() {
   const deleteSelected = useBuilderStore((s) => s.deleteSelected)
   const clearAll = useBuilderStore((s) => s.clearAll)
   const rotateSelectedY = useBuilderStore((s) => s.rotateSelectedY)
+  const rotateSelectedOpposite = useBuilderStore((s) => s.rotateSelectedOpposite)
   const selectedPieceId = useBuilderStore((s) => s.selectedPieceId)
   const pieces = useBuilderStore((s) => s.pieces)
   const undo = useBuilderStore((s) => s.undo)
@@ -70,13 +71,16 @@ export function BuildMenu() {
         e.preventDefault()
         deleteSelected()
       }
-      if (key === 'r') rotateSelectedY(Math.PI / 4)
+      if (key === 'r') {
+        if (e.shiftKey) rotateSelectedOpposite()
+        else rotateSelectedY(Math.PI / 4)
+      }
       if (key === 'v') setTool('select')
       if (key === 'b') setTool('place')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [deleteSelected, rotateSelectedY, setTool, undo, redo])
+  }, [deleteSelected, rotateSelectedY, rotateSelectedOpposite, setTool, undo, redo])
 
   const onClearClick = () => {
     if (pieces.length === 0) return
@@ -126,9 +130,18 @@ export function BuildMenu() {
             className="tool-btn"
             onClick={() => rotateSelectedY(Math.PI / 4)}
             disabled={!selectedPieceId}
-            title="Rotate — tap a connector to cycle usable positions"
+            title="Rotate in the current working plane"
           >
             Rotate
+          </button>
+          <button
+            type="button"
+            className="tool-btn"
+            onClick={() => rotateSelectedOpposite()}
+            disabled={!selectedPieceId}
+            title="Rotate around the opposite axis — flip onto another working plane"
+          >
+            Opp. axis
           </button>
           <button
             type="button"

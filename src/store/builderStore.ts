@@ -1,8 +1,16 @@
 import { create } from 'zustand'
-import type { CameraNavMode, Connection, PlacementMode, PlacedPiece, ToolMode } from '../types/knex'
+import type {
+  CameraNavMode,
+  Connection,
+  ConnectorRotateMode,
+  PlacementMode,
+  PlacedPiece,
+  ToolMode,
+} from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
 import {
   allWorldPorts,
+  connectorWorkNormal,
   findBestSnap,
   nextUsableConnectorPose,
   occupiedPortKeys,
@@ -32,6 +40,7 @@ interface BuilderState {
   cameraNavMode: CameraNavMode
   menuOpen: boolean
   toolsOpen: boolean
+  workNormal: [number, number, number]
   past: Snapshot[]
   future: Snapshot[]
   ghost: {
@@ -59,7 +68,8 @@ interface BuilderState {
   deleteSelected: () => void
   clearAll: () => void
   rotateSelectedY: (deltaRad: number) => void
-  rotateConnector: (id: string) => void
+  rotateConnector: (id: string, mode?: ConnectorRotateMode) => void
+  rotateSelectedOpposite: () => void
   undo: () => void
   redo: () => void
 }
@@ -95,6 +105,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   cameraNavMode: 'fly',
   menuOpen: true,
   toolsOpen: true,
+  workNormal: [0, 1, 0],
   past: [],
   future: [],
   ghost: null,
@@ -228,13 +239,13 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     })),
 
   rotateSelectedY: (deltaRad) => {
-    const { selectedPieceId, pieces, connections } = get()
+    const { selectedPieceId, pieces, connections, workNormal } = get()
     if (!selectedPieceId) return
     const piece = pieces.find((p) => p.id === selectedPieceId)
     if (!piece) return
     const catalog = getCatalogPiece(piece.catalogId)
     if (catalog?.category === 'connectors') {
-      get().rotateConnector(selectedPieceId)
+      get().rotateConnector(selectedPieceId, 'in-plane')
       return
     }
 
@@ -243,29 +254,68 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     )
     if (locked) return
 
+    const axis = new THREE.Vector3(...workNormal).normalize()
     withHistory(get, set, () => ({
       pieces: pieces.map((p) => {
         if (p.id !== selectedPieceId) return p
         const q = new THREE.Quaternion(p.rotation[0], p.rotation[1], p.rotation[2], p.rotation[3])
-        const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), deltaRad)
-        q.premultiply(yaw)
+        const step = new THREE.Quaternion().setFromAxisAngle(axis, deltaRad)
+        q.premultiply(step)
         return { ...p, rotation: [q.x, q.y, q.z, q.w] }
       }),
     }))
   },
 
-  rotateConnector: (id) => {
+  rotateConnector: (id, mode = 'in-plane') => {
     const { pieces, connections } = get()
     const piece = pieces.find((p) => p.id === id)
     if (!piece) return
-    const next = nextUsableConnectorPose(piece, pieces, connections)
+    const next = nextUsableConnectorPose(piece, pieces, connections, mode)
     if (!next) return
+    const nextPiece = { ...piece, position: next.position, rotation: next.rotation }
+    const catalog = getCatalogPiece(piece.catalogId)
+    const work = catalog
+      ? connectorWorkNormal(nextPiece, catalog, next.connections)
+      : new THREE.Vector3(0, 1, 0)
     withHistory(get, set, () => ({
-      pieces: pieces.map((p) =>
-        p.id === id ? { ...p, position: next.position, rotation: next.rotation } : p,
-      ),
+      pieces: pieces.map((p) => (p.id === id ? nextPiece : p)),
       connections: next.connections,
       selectedPieceId: id,
+      workNormal: [work.x, work.y, work.z],
+    }))
+  },
+
+  rotateSelectedOpposite: () => {
+    const { selectedPieceId, pieces, connections, workNormal } = get()
+    if (!selectedPieceId) return
+    const piece = pieces.find((p) => p.id === selectedPieceId)
+    if (!piece) return
+    const catalog = getCatalogPiece(piece.catalogId)
+    if (catalog?.category === 'connectors') {
+      get().rotateConnector(selectedPieceId, 'opposite')
+      return
+    }
+
+    const locked = connections.some(
+      (c) => c.aPieceId === selectedPieceId || c.bPieceId === selectedPieceId,
+    )
+    if (locked) return
+
+    const work = new THREE.Vector3(...workNormal).normalize()
+    const axis = new THREE.Vector3(1, 0, 0)
+    if (Math.abs(work.dot(axis)) > 0.7) axis.set(0, 0, 1)
+    axis.sub(work.clone().multiplyScalar(axis.dot(work)))
+    if (axis.lengthSq() < 1e-6) axis.set(0, 0, 1)
+    axis.normalize()
+
+    withHistory(get, set, () => ({
+      pieces: pieces.map((p) => {
+        if (p.id !== selectedPieceId) return p
+        const q = new THREE.Quaternion(p.rotation[0], p.rotation[1], p.rotation[2], p.rotation[3])
+        const step = new THREE.Quaternion().setFromAxisAngle(axis, Math.PI / 4)
+        q.premultiply(step)
+        return { ...p, rotation: [q.x, q.y, q.z, q.w] }
+      }),
     }))
   },
 

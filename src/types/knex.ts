@@ -65,3 +65,6 @@ export type PlacementMode = 'single' | 'multiple'
 
 /** fly = orbit/rotate camera; pan = slide the view */
 export type CameraNavMode = 'fly' | 'pan'
+
+/** in-plane = spin on the current working plate; opposite = flip toward another plane */
+export type ConnectorRotateMode = 'in-plane' | 'opposite'
