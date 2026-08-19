@@ -7,7 +7,7 @@ import { getCatalogPiece } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
 import { allWorldPorts, occupiedPortKeys } from '../lib/math'
-import { setOrbitControls } from '../lib/orbitBridge'
+import { setOrbitControls, setOrbitTarget } from '../lib/orbitBridge'
 
 function PlacedPieces() {
   const pieces = useBuilderStore((s) => s.pieces)
@@ -193,6 +193,21 @@ function CursorTracker() {
   return null
 }
 
+function OrbitFocus() {
+  const selectedPieceId = useBuilderStore((s) => s.selectedPieceId)
+  const tool = useBuilderStore((s) => s.tool)
+  const pieces = useBuilderStore((s) => s.pieces)
+
+  useFrame(() => {
+    if (tool !== 'select' || !selectedPieceId) return
+    const piece = pieces.find((p) => p.id === selectedPieceId)
+    if (!piece) return
+    setOrbitTarget(new THREE.Vector3(...piece.position))
+  })
+
+  return null
+}
+
 export function Scene() {
   const cameraNavMode = useBuilderStore((s) => s.cameraNavMode)
   const controlsRef = useRef<OrbitControlsImpl>(null)
@@ -224,6 +239,7 @@ export function Scene() {
       />
 
       <CursorTracker />
+      <OrbitFocus />
       <PlacementPlane />
       <PlacedPieces />
       <GhostPiece />
