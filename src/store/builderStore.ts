@@ -10,11 +10,15 @@ import type {
 import { getCatalogPiece } from '../data/catalog'
 import {
   allWorldPorts,
+  connectorPosesOnRodEnd,
   connectorWorkNormal,
   findBestSnap,
+  nearestRodEnd,
   nextUsableConnectorPose,
   occupiedPortKeys,
+  SNAP_DISTANCE,
   snapPointToGrid,
+  type ConnectorAimPose,
 } from '../lib/math'
 import * as THREE from 'three'
 
@@ -53,6 +57,14 @@ interface BuilderState {
       targetPortId: string
     } | null
   } | null
+  rodAim: {
+    targetPieceId: string
+    targetPortId: string
+    tip: [number, number, number]
+    poses: ConnectorAimPose[]
+    activeIndex: number
+    dragging: boolean
+  } | null
   selectCatalog: (id: string | null) => void
   setTool: (tool: ToolMode) => void
   setPlacementMode: (mode: PlacementMode) => void
@@ -63,6 +75,9 @@ interface BuilderState {
   toggleTools: () => void
   selectPiece: (id: string | null) => void
   updateGhost: (point: THREE.Vector3) => void
+  aimRodPose: (index: number) => void
+  setRodAimDragging: (dragging: boolean) => void
+  clearRodAim: () => void
   clearGhost: () => void
   placeGhost: () => void
   deleteSelected: () => void
@@ -109,6 +124,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   past: [],
   future: [],
   ghost: null,
+  rodAim: null,
 
   selectCatalog: (id) =>
     set({
@@ -117,12 +133,14 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       selectedPieceId: null,
       menuOpen: id ? false : true,
       ghost: id ? get().ghost : null,
+      rodAim: id ? get().rodAim : null,
     }),
 
   setTool: (tool) =>
     set({
       tool,
       ghost: tool === 'place' ? get().ghost : null,
+      rodAim: tool === 'place' ? get().rodAim : null,
     }),
 
   setPlacementMode: (mode) => set({ placementMode: mode }),
@@ -135,22 +153,76 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   setToolsOpen: (open) => set({ toolsOpen: open }),
   toggleTools: () => set({ toolsOpen: !get().toolsOpen }),
 
-  selectPiece: (id) => set({ selectedPieceId: id, tool: 'select' }),
+  selectPiece: (id) => set({ selectedPieceId: id, tool: 'select', rodAim: null }),
 
   updateGhost: (point) => {
-    const { selectedCatalogId, pieces, connections, tool } = get()
+    const { selectedCatalogId, pieces, connections, tool, rodAim, workNormal } = get()
     if (tool !== 'place' || !selectedCatalogId) {
-      set({ ghost: null })
+      set({ ghost: null, rodAim: null })
       return
     }
+    if (rodAim?.dragging) return
+
     const catalog = getCatalogPiece(selectedCatalogId)
     if (!catalog) {
-      set({ ghost: null })
+      set({ ghost: null, rodAim: null })
       return
     }
 
     const occupied = occupiedPortKeys(connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+
+    if (catalog.category === 'connectors') {
+      const leave = SNAP_DISTANCE + 0.55
+      const sameTip =
+        rodAim &&
+        nearestRodEnd(
+          freePorts.filter(
+            (p) => p.pieceId === rodAim.targetPieceId && p.portId === rodAim.targetPortId,
+          ),
+          point,
+          leave,
+        )
+      const rodEnd = sameTip ?? nearestRodEnd(freePorts, point)
+      if (rodEnd) {
+        const sameTarget =
+          rodAim &&
+          rodAim.targetPieceId === rodEnd.pieceId &&
+          rodAim.targetPortId === rodEnd.portId
+        const poses = sameTarget
+          ? rodAim.poses
+          : connectorPosesOnRodEnd(catalog, rodEnd, new THREE.Vector3(...workNormal))
+        if (poses.length) {
+          const activeIndex = sameTarget ? rodAim.activeIndex : poses.findIndex((p) => p.inPlane)
+          const index = activeIndex >= 0 ? activeIndex : 0
+          const pose = poses[index]
+          set({
+            rodAim: {
+              targetPieceId: rodEnd.pieceId,
+              targetPortId: rodEnd.portId,
+              tip: [...rodEnd.position],
+              poses,
+              activeIndex: index,
+              dragging: false,
+            },
+            ghost: {
+              catalogId: selectedCatalogId,
+              position: pose.position,
+              rotation: pose.rotation,
+              snap: {
+                localPortId: pose.localPortId,
+                targetPieceId: rodEnd.pieceId,
+                targetPortId: rodEnd.portId,
+              },
+            },
+          })
+          return
+        }
+      }
+    }
+
+    if (rodAim) set({ rodAim: null })
+
     const snap = findBestSnap(catalog, freePorts, point)
 
     if (snap) {
@@ -180,7 +252,38 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     })
   },
 
-  clearGhost: () => set({ ghost: null }),
+  aimRodPose: (index) => {
+    const { rodAim, selectedCatalogId } = get()
+    if (!rodAim || !selectedCatalogId) return
+    const pose = rodAim.poses[index]
+    if (!pose) return
+    set({
+      rodAim: { ...rodAim, activeIndex: index },
+      ghost: {
+        catalogId: selectedCatalogId,
+        position: pose.position,
+        rotation: pose.rotation,
+        snap: {
+          localPortId: pose.localPortId,
+          targetPieceId: rodAim.targetPieceId,
+          targetPortId: rodAim.targetPortId,
+        },
+      },
+    })
+  },
+
+  setRodAimDragging: (dragging) => {
+    const { rodAim } = get()
+    if (!rodAim) return
+    set({ rodAim: { ...rodAim, dragging } })
+  },
+
+  clearRodAim: () => set({ rodAim: null }),
+
+  clearGhost: () => {
+    if (get().rodAim?.dragging) return
+    set({ ghost: null, rodAim: null })
+  },
 
   placeGhost: () => {
     const current = get()
@@ -213,6 +316,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       menuOpen: true,
       selectedCatalogId: single ? null : ghost.catalogId,
       ghost: single ? null : { ...ghost, snap: null },
+      rodAim: null,
       tool: 'place' as const,
     }))
   },
@@ -235,6 +339,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       connections: [],
       selectedPieceId: null,
       ghost: null,
+      rodAim: null,
       menuOpen: true,
     })),
 
@@ -330,6 +435,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       connections: previous.connections,
       selectedPieceId: previous.selectedPieceId,
       ghost: null,
+      rodAim: null,
     })
   },
 
@@ -344,6 +450,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       connections: next.connections,
       selectedPieceId: next.selectedPieceId,
       ghost: null,
+      rodAim: null,
     })
   },
 }))

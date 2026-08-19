@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { ContactShadows, Grid, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
@@ -6,8 +6,23 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { getCatalogPiece } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
-import { allWorldPorts, occupiedPortKeys } from '../lib/math'
-import { setOrbitControls, setOrbitTarget } from '../lib/orbitBridge'
+import { allWorldPorts, occupiedPortKeys, pickConnectorAimPose } from '../lib/math'
+import {
+  aimCameraAt,
+  captureCameraShot,
+  lerpCameraShot,
+  setOrbitControls,
+  setOrbitTarget,
+  type CameraShot,
+} from '../lib/orbitBridge'
+
+let skipPlaceClick = false
+
+function consumePlaceClick() {
+  if (!skipPlaceClick) return false
+  skipPlaceClick = false
+  return true
+}
 
 function PlacedPieces() {
   const pieces = useBuilderStore((s) => s.pieces)
@@ -62,6 +77,7 @@ function PlacedPieces() {
               tap.current = null
             }}
             onClick={(e) => {
+              if (consumePlaceClick()) return
               e.stopPropagation()
               if (!placing) return
               updateGhost(e.point.clone())
@@ -82,6 +98,7 @@ function PlacedPieces() {
 
 function GhostPiece() {
   const ghost = useBuilderStore((s) => s.ghost)
+  const rodAim = useBuilderStore((s) => s.rodAim)
   const pulse = useRef(0)
   const group = useRef<THREE.Group>(null)
 
@@ -98,14 +115,15 @@ function GhostPiece() {
   if (!ghost) return null
   const catalog = getCatalogPiece(ghost.catalogId)
   if (!catalog) return null
+  const aiming = Boolean(rodAim)
 
   return (
     <group ref={group} position={ghost.position} quaternion={ghost.rotation}>
       <PieceMesh
         catalog={catalog}
-        opacity={0.55}
+        opacity={aiming ? 0.82 : 0.55}
         emissive={ghost.snap ? '#69db7c' : '#74c0fc'}
-        emissiveIntensity={ghost.snap ? 0.35 : 0.12}
+        emissiveIntensity={ghost.snap ? (aiming ? 0.5 : 0.35) : 0.12}
       />
     </group>
   )
@@ -168,6 +186,7 @@ function PlacementPlane() {
   }
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
+    if (consumePlaceClick()) return
     e.stopPropagation()
     if (tool === 'place') {
       updateGhost(e.point.clone())
@@ -201,7 +220,20 @@ function CursorTracker() {
   const last = useRef(new THREE.Vector3(Number.NaN, 0, 0))
 
   useFrame(() => {
+    const rodAim = useBuilderStore.getState().rodAim
+    if (rodAim?.dragging) return
     if (tool !== 'place') return
+    raycaster.setFromCamera(pointer, camera)
+    if (rodAim) {
+      const tip = new THREE.Vector3(...rodAim.tip)
+      const closest = new THREE.Vector3()
+      raycaster.ray.closestPointToPoint(tip, closest)
+      if (last.current.distanceToSquared(closest) < 0.0004) return
+      last.current.copy(closest)
+      updateGhost(closest.clone())
+      return
+    }
+    if (!raycaster.ray.intersectPlane(plane, hit)) return
     raycaster.setFromCamera(pointer, camera)
     if (!raycaster.ray.intersectPlane(plane, hit)) return
     if (last.current.distanceToSquared(hit) < 0.0004) return
@@ -218,6 +250,7 @@ function OrbitFocus() {
   const pieces = useBuilderStore((s) => s.pieces)
 
   useFrame(() => {
+    if (useBuilderStore.getState().rodAim) return
     if (tool !== 'select' || !selectedPieceId) return
     const piece = pieces.find((p) => p.id === selectedPieceId)
     if (!piece) return
@@ -227,10 +260,140 @@ function OrbitFocus() {
   return null
 }
 
+function RodAimMarkers() {
+  const rodAim = useBuilderStore((s) => s.rodAim)
+  if (!rodAim) return null
+  const tip = rodAim.tip
+
+  return (
+    <group>
+      <mesh position={tip}>
+        <sphereGeometry args={[0.11, 16, 16]} />
+        <meshStandardMaterial
+          color="#66d9e8"
+          emissive="#22b8cf"
+          emissiveIntensity={0.85}
+          transparent
+          opacity={0.95}
+        />
+      </mesh>
+      {rodAim.poses.map((pose, index) => {
+        const active = index === rodAim.activeIndex
+        const fan = new THREE.Vector3(...pose.fan).multiplyScalar(active ? 0.52 : 0.42)
+        return (
+          <mesh
+            key={`${pose.localPortId}:${index}`}
+            position={[tip[0] + fan.x, tip[1] + fan.y, tip[2] + fan.z]}
+          >
+            <sphereGeometry args={[active ? 0.09 : 0.055, 12, 12]} />
+            <meshStandardMaterial
+              color={active ? '#69db7c' : pose.inPlane ? '#ffd43b' : '#adb5bd'}
+              emissive={active ? '#51cf66' : pose.inPlane ? '#fcc419' : '#868e96'}
+              emissiveIntensity={active ? 0.9 : 0.35}
+              transparent
+              opacity={active ? 1 : 0.7}
+            />
+          </mesh>
+        )
+      })}
+    </group>
+  )
+}
+
+function RodAimCamera() {
+  const rodAim = useBuilderStore((s) => s.rodAim)
+  const saved = useRef<CameraShot | null>(null)
+
+  useFrame(() => {
+    if (rodAim) {
+      if (!saved.current) saved.current = captureCameraShot()
+      aimCameraAt(new THREE.Vector3(...rodAim.tip), 2.2, 0.16)
+      return
+    }
+    if (!saved.current) return
+    lerpCameraShot(saved.current, 0.16)
+    const controlsShot = captureCameraShot()
+    if (controlsShot && controlsShot.position.distanceTo(saved.current.position) < 0.08) {
+      saved.current = null
+    }
+  })
+
+  return null
+}
+
+function RodAimGestures() {
+  const { camera, gl } = useThree()
+  const dragging = useRef(false)
+
+  useEffect(() => {
+    const canvas = gl.domElement
+
+    const onDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.pointerType === 'mouse') return
+      const state = useBuilderStore.getState()
+      if (!state.rodAim || state.tool !== 'place' || !state.selectedCatalogId) return
+      dragging.current = true
+      state.setRodAimDragging(true)
+      const index = pickConnectorAimPose(
+        state.rodAim.poses,
+        new THREE.Vector3(...state.rodAim.tip),
+        camera,
+        event.clientX,
+        event.clientY,
+        canvas,
+      )
+      state.aimRodPose(index)
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
+
+    const onMove = (event: PointerEvent) => {
+      if (!dragging.current) return
+      const state = useBuilderStore.getState()
+      if (!state.rodAim) return
+      const index = pickConnectorAimPose(
+        state.rodAim.poses,
+        new THREE.Vector3(...state.rodAim.tip),
+        camera,
+        event.clientX,
+        event.clientY,
+        canvas,
+      )
+      if (index !== state.rodAim.activeIndex) state.aimRodPose(index)
+    }
+
+    const onUp = () => {
+      if (!dragging.current) return
+      dragging.current = false
+      const state = useBuilderStore.getState()
+      state.setRodAimDragging(false)
+      if (state.rodAim && state.ghost?.snap) {
+        skipPlaceClick = true
+        state.placeGhost()
+      }
+    }
+
+    canvas.addEventListener('pointerdown', onDown, { capture: true })
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [camera, gl])
+
+  return null
+}
+
 export function Scene() {
   const cameraNavMode = useBuilderStore((s) => s.cameraNavMode)
+  const rodAim = useBuilderStore((s) => s.rodAim)
   const controlsRef = useRef<OrbitControlsImpl>(null)
-  const fly = cameraNavMode === 'fly'
+  const fly = cameraNavMode === 'fly' && !rodAim
 
   return (
     <>
@@ -259,10 +422,13 @@ export function Scene() {
 
       <CursorTracker />
       <OrbitFocus />
+      <RodAimCamera />
+      <RodAimGestures />
       <PlacementPlane />
       <PlacedPieces />
       <GhostPiece />
       <SnapHints />
+      <RodAimMarkers />
 
       <ContactShadows
         position={[0, 0.01, 0]}
@@ -279,7 +445,7 @@ export function Scene() {
         }}
         makeDefault
         enableRotate={fly}
-        enablePan
+        enablePan={!rodAim}
         screenSpacePanning
         minPolarAngle={0.04}
         maxPolarAngle={Math.PI - 0.04}
