@@ -1,6 +1,14 @@
 export type PieceCategory = 'rods' | 'connectors' | 'wheels' | 'gears'
 
-export type PortKind = 'rod-end' | 'socket'
+/** rod-end ↔ socket; interlock ↔ interlock (connector plates slid together) */
+export type PortKind = 'rod-end' | 'socket' | 'interlock'
+
+export type ConnectorVariant =
+  | 'plate' // full/near-full flat connector with center slot
+  | 'half' // silver semi-circle with rail
+  | 'ball' // two blues joined
+  | 'mixed' // silver + blue joined
+  | 'corner' // two silvers joined
 
 export interface PortDef {
   id: string
@@ -18,8 +26,10 @@ export interface CatalogPiece {
   description: string
   color: string
   accent?: string
-  /** Rod length (center-to-center when connected), ignored for non-rods */
+  /** Rod length (end-to-end body), ignored for non-rods */
   length?: number
+  /** Visual / assembly style for connectors */
+  variant?: ConnectorVariant
   ports: PortDef[]
 }
 

@@ -1,7 +1,12 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import type { CatalogPiece } from '../../types/knex'
-import { ROD_RADIUS_SCENE } from '../../data/catalog'
+import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
+import {
+  BLUE_CLIP_ANGLES,
+  ROD_RADIUS_SCENE,
+  SILVER_CLIP_ANGLES,
+  SOCKET_RADIUS,
+} from '../../data/catalog'
 
 type MatProps = {
   color: string
@@ -43,66 +48,222 @@ function Plastic({
 }
 
 /**
- * Classic open C-clip: opposite of a rod end.
- * - Open on top (hub-axis) so a rod’s “+” shaft snaps in perpendicularly
- * - Side jaws grip the + fins
- * - Inner ribs catch the rod-end groove for straight-in snaps
- *
- * Local frame: +Z radial (out of hub), +Y hub axis (clip mouth opens ±Y).
+ * Open C-clip — opposite of a rod end.
+ * Mouth opens along hub axis (+Y) so a rod’s “+” snaps in perpendicularly.
+ * Local +Z is radial out of the hub.
  */
 function CClip({ mat, accent }: { mat: MatProps; accent?: string }) {
   const jawThick = 0.038
-  const jawHeight = 0.16
+  const jawHeight = 0.155
   const jawLength = 0.2
-  // Opening wide enough for the rod “+” cross-section
   const mouth = ROD_RADIUS_SCENE * 2.15
-  const zStart = 0.08
+  const zStart = SOCKET_RADIUS * 0.28
   const zMid = zStart + jawLength / 2
 
   return (
     <group>
-      {/* Left jaw */}
       <mesh position={[-(mouth / 2 + jawThick / 2), 0, zMid]}>
         <boxGeometry args={[jawThick, jawHeight, jawLength]} />
         <Plastic mat={mat} />
       </mesh>
-      {/* Right jaw */}
       <mesh position={[mouth / 2 + jawThick / 2, 0, zMid]}>
         <boxGeometry args={[jawThick, jawHeight, jawLength]} />
         <Plastic mat={mat} />
       </mesh>
-      {/* Bottom bridge — top stays open for perpendicular “+” snap-in */}
+      {/* Bottom only — top open for perpendicular + snap */}
       <mesh position={[0, -(jawHeight / 2 - jawThick / 2), zMid]}>
         <boxGeometry args={[mouth + jawThick * 2, jawThick, jawLength]} />
         <Plastic mat={mat} />
       </mesh>
-      {/* Inner back wall (socket base) */}
-      <mesh position={[0, 0, zStart - 0.015]}>
-        <boxGeometry args={[mouth + jawThick * 2, jawHeight * 0.92, 0.04]} />
+      <mesh position={[0, 0, zStart - 0.012]}>
+        <boxGeometry args={[mouth + jawThick * 2, jawHeight * 0.9, 0.04]} />
         <Plastic mat={mat} color={accent ?? mat.color} />
       </mesh>
-      {/* Groove-catching ribs near the outer mouth (mate to rod-end neck) */}
+      {/* Inward snap bumps that catch the rod-end groove */}
       {([-1, 1] as const).map((side) => (
         <mesh
           key={side}
-          position={[side * (mouth / 2 - 0.01), 0.015, zStart + jawLength - 0.035]}
+          position={[side * (mouth / 2 - 0.012), 0.012, zStart + jawLength * 0.55]}
         >
-          <boxGeometry args={[0.028, 0.055, 0.04]} />
+          <sphereGeometry args={[0.022, 10, 10]} />
           <Plastic mat={mat} color={accent ?? '#ffffff'} />
-        </mesh>
-      ))}
-      {/* Small top lips so the C reads clearly while staying open */}
-      {([-1, 1] as const).map((side) => (
-        <mesh
-          key={`lip-${side}`}
-          position={[side * (mouth / 2 + jawThick / 2), jawHeight / 2 - 0.012, zMid]}
-        >
-          <boxGeometry args={[jawThick * 1.15, 0.024, jawLength * 0.85]} />
-          <Plastic mat={mat} />
         </mesh>
       ))}
     </group>
   )
+}
+
+function quatForClip(direction: [number, number, number]): THREE.Quaternion {
+  const zAxis = new THREE.Vector3(...direction).normalize()
+  let yAxis = new THREE.Vector3(0, 1, 0)
+  if (Math.abs(zAxis.dot(yAxis)) > 0.9) {
+    yAxis = new THREE.Vector3(1, 0, 0)
+  }
+  const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize()
+  yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize()
+  return new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis),
+  )
+}
+
+/** Rectangular center notch / rail used to slide connectors together. */
+function InterlockSlot({
+  mat,
+  half = false,
+}: {
+  mat: MatProps
+  half?: boolean
+}) {
+  const slotW = 0.11
+  const slotD = half ? 0.2 : 0.34
+  const slotH = 0.085
+  return (
+    <group>
+      {/* Dark void reading as the through-slot */}
+      <mesh position={[0, 0, half ? -0.05 : -0.02]}>
+        <boxGeometry args={[slotW, slotH, slotD]} />
+        <meshStandardMaterial
+          color="#141518"
+          roughness={0.75}
+          transparent={mat.transparent}
+          opacity={mat.opacity}
+          depthWrite={mat.depthWrite}
+        />
+      </mesh>
+      {/* Side walls of the notch */}
+      {([-1, 1] as const).map((side) => (
+        <mesh key={side} position={[side * (slotW / 2 + 0.018), 0, half ? -0.04 : -0.01]}>
+          <boxGeometry args={[0.03, slotH * 1.15, slotD * 0.95]} />
+          <Plastic mat={mat} />
+        </mesh>
+      ))}
+      {half && (
+        <mesh position={[0, 0, -0.16]}>
+          <boxGeometry args={[slotW * 1.35, slotH * 1.1, 0.05]} />
+          <Plastic mat={mat} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
+function ConnectorPlate({
+  mat,
+  accent,
+  angles,
+  half = false,
+  color,
+}: {
+  mat: MatProps
+  accent?: string
+  angles: readonly number[]
+  half?: boolean
+  color?: string
+}) {
+  const plateMat = color ? { ...mat, color } : mat
+  const hubR = 0.11
+  const hubH = 0.14
+  const holeR = ROD_RADIUS_SCENE * 1.05
+
+  const clips = useMemo(
+    () =>
+      angles.map((deg, i) => {
+        const a = (deg * Math.PI) / 180
+        const dir: [number, number, number] = [Math.sin(a), 0, Math.cos(a)]
+        return { id: `c${i}`, quat: quatForClip(dir) }
+      }),
+    [angles],
+  )
+
+  return (
+    <group>
+      <mesh>
+        <cylinderGeometry args={[hubR, hubR, hubH, 22]} />
+        <Plastic mat={plateMat} />
+      </mesh>
+      {([-1, 1] as const).map((side) => (
+        <group key={side}>
+          <mesh position={[0, side * (hubH / 2 + 0.001), 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[holeR, hubR * 0.92, 22]} />
+            <Plastic mat={plateMat} color={accent ?? plateMat.color} />
+          </mesh>
+          <mesh position={[0, side * (hubH / 2 + 0.012), 0]}>
+            <cylinderGeometry args={[hubR * 1.06, hubR * 1.06, 0.02, 22]} />
+            <Plastic mat={plateMat} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* Light webbing rings between hub and clips */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.18, 0.012, 8, 28]} />
+        <Plastic mat={plateMat} />
+      </mesh>
+
+      <InterlockSlot mat={plateMat} half={half} />
+
+      {half && (
+        <mesh position={[0, 0, -0.12]} rotation={[0, 0, 0]}>
+          <boxGeometry args={[0.42, hubH * 0.95, 0.06]} />
+          <Plastic mat={plateMat} />
+        </mesh>
+      )}
+
+      {clips.map((clip) => (
+        <group key={clip.id} quaternion={clip.quat}>
+          <CClip mat={plateMat} accent={accent} />
+        </group>
+      ))}
+    </group>
+  )
+}
+
+function AssembledHub({
+  variant,
+  mat,
+  accent,
+}: {
+  variant: ConnectorVariant
+  mat: MatProps
+  accent?: string
+}) {
+  const blue = '#1c7ed6'
+  const silver = accent ?? '#adb5bd'
+
+  if (variant === 'ball') {
+    return (
+      <group>
+        <ConnectorPlate mat={mat} color={blue} angles={[0, 45, 90, 135, 180, 225, 270, 315]} />
+        <group rotation={[Math.PI / 2, 0, 0]}>
+          <ConnectorPlate mat={mat} color={blue} angles={[0, 45, 90, 135, 180, 225, 270, 315]} />
+        </group>
+      </group>
+    )
+  }
+
+  if (variant === 'mixed') {
+    return (
+      <group>
+        <ConnectorPlate mat={mat} color={blue} angles={[0, 45, 90, 135, 180, 225, 270, 315]} />
+        <group rotation={[Math.PI / 2, 0, 0]}>
+          <ConnectorPlate mat={mat} color={silver} angles={SILVER_CLIP_ANGLES} half />
+        </group>
+      </group>
+    )
+  }
+
+  if (variant === 'corner') {
+    return (
+      <group>
+        <ConnectorPlate mat={mat} color={silver} angles={SILVER_CLIP_ANGLES} half />
+        <group rotation={[Math.PI / 2, 0, 0]}>
+          <ConnectorPlate mat={mat} color={silver} angles={SILVER_CLIP_ANGLES} half />
+        </group>
+      </group>
+    )
+  }
+
+  return null
 }
 
 function ConnectorMesh({
@@ -112,64 +273,36 @@ function ConnectorMesh({
   catalog: CatalogPiece
   mat: MatProps
 }) {
-  const hubR = 0.12
-  const hubH = 0.15
-  const holeR = ROD_RADIUS_SCENE * 1.05
+  const variant = catalog.variant ?? 'plate'
 
-  const clips = useMemo(() => {
-    return catalog.ports.map((port) => {
-      const zAxis = new THREE.Vector3(...port.direction).normalize()
-      // Keep clip mouth aligned with hub axis (Y) for planar connectors.
-      let yAxis = new THREE.Vector3(0, 1, 0)
-      if (Math.abs(zAxis.dot(yAxis)) > 0.9) {
-        yAxis = new THREE.Vector3(1, 0, 0)
-      }
-      const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize()
-      yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize()
-      const matrix = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis)
-      const quat = new THREE.Quaternion().setFromRotationMatrix(matrix)
-      return { id: port.id, quat }
-    })
+  const angles = useMemo(() => {
+    const list: number[] = []
+    for (const port of catalog.ports) {
+      if (port.kind !== 'socket') continue
+      // Only use ports that lie in the primary (Y-hub) plane for single plates.
+      if (Math.abs(port.direction[1]) > 0.35) continue
+      const yaw = (Math.atan2(port.direction[0], port.direction[2]) * 180) / Math.PI
+      list.push(((yaw % 360) + 360) % 360)
+    }
+    return list.length ? list : [...BLUE_CLIP_ANGLES]
   }, [catalog])
 
-  return (
-    <group>
-      {/* Flat hub body */}
-      <mesh>
-        <cylinderGeometry args={[hubR, hubR, hubH, 24]} />
-        <Plastic mat={mat} />
-      </mesh>
-      {/* Through-hole cues (rod can pass as an axle) */}
-      {([-1, 1] as const).map((side) => (
-        <group key={side}>
-          <mesh position={[0, side * (hubH / 2 + 0.001), 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[holeR, hubR * 0.95, 24]} />
-            <Plastic mat={mat} color={catalog.accent ?? mat.color} />
-          </mesh>
-          <mesh position={[0, side * (hubH / 2 + 0.002), 0]}>
-            <cylinderGeometry args={[holeR, holeR, 0.012, 16]} />
-            <meshStandardMaterial
-              color="#1a1b1e"
-              roughness={0.7}
-              transparent={mat.transparent}
-              opacity={mat.opacity}
-              depthWrite={mat.depthWrite}
-            />
-          </mesh>
-          <mesh position={[0, side * (hubH / 2 + 0.014), 0]}>
-            <cylinderGeometry args={[hubR * 1.08, hubR * 1.08, 0.022, 24]} />
-            <Plastic mat={mat} />
-          </mesh>
-        </group>
-      ))}
+  if (variant === 'ball' || variant === 'mixed' || variant === 'corner') {
+    return <AssembledHub variant={variant} mat={mat} accent={catalog.accent} />
+  }
 
-      {clips.map((clip) => (
-        <group key={clip.id} quaternion={clip.quat}>
-          <CClip mat={mat} accent={catalog.accent} />
-        </group>
-      ))}
-    </group>
-  )
+  if (variant === 'half') {
+    return (
+      <ConnectorPlate
+        mat={mat}
+        accent={catalog.accent}
+        angles={SILVER_CLIP_ANGLES}
+        half
+      />
+    )
+  }
+
+  return <ConnectorPlate mat={mat} accent={catalog.accent} angles={angles} />
 }
 
 export function PieceMesh({
@@ -181,7 +314,7 @@ export function PieceMesh({
   const transparent = opacity < 0.999
   const mat: MatProps = {
     color: catalog.color,
-    roughness: 0.32,
+    roughness: 0.3,
     metalness: 0.03,
     transparent,
     opacity,

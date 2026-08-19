@@ -110,8 +110,20 @@ function SnapHints() {
         <mesh key={`${port.pieceId}:${port.portId}`} position={port.position}>
           <sphereGeometry args={[0.07, 12, 12]} />
           <meshStandardMaterial
-            color={port.kind === 'socket' ? '#ffd43b' : '#66d9e8'}
-            emissive={port.kind === 'socket' ? '#fcc419' : '#22b8cf'}
+            color={
+              port.kind === 'socket'
+                ? '#ffd43b'
+                : port.kind === 'interlock'
+                  ? '#ff922b'
+                  : '#66d9e8'
+            }
+            emissive={
+              port.kind === 'socket'
+                ? '#fcc419'
+                : port.kind === 'interlock'
+                  ? '#fd7e14'
+                  : '#22b8cf'
+            }
             emissiveIntensity={0.4}
             transparent
             opacity={0.85}

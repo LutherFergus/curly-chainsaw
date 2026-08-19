@@ -2,7 +2,11 @@ import type { CatalogPiece, PortDef } from '../types/knex'
 
 const ROD_RADIUS = 0.08
 
-/** Classic-ish K'NEX rod lengths in scene units (connector pitch ≈ 1). */
+/** Hub center → clip grip distance. */
+export const SOCKET_RADIUS = 0.28
+export const ROD_RADIUS_SCENE = ROD_RADIUS
+
+/** Classic-ish K'NEX rod lengths in scene units. */
 const ROD_SPECS = [
   { id: 'rod-gray', name: 'Gray Rod', color: '#9aa3ad', length: 1.0, description: 'Shortest rod — tight links and spacers.' },
   { id: 'rod-green', name: 'Green Rod', color: '#2f9e44', length: 2.0, description: 'Short rod for compact frames.' },
@@ -12,6 +16,11 @@ const ROD_SPECS = [
   { id: 'rod-white', name: 'White Rod', color: '#f8f9fa', length: 8.5, description: 'Longest standard rod.' },
 ] as const
 
+/** Blue plate clip angles (7 clips; 8th position is the interlock notch). */
+export const BLUE_CLIP_ANGLES = [0, 45, 90, 135, 180, 225, 270] as const
+/** Silver half clip angles (5 clips along a 180° arc). */
+export const SILVER_CLIP_ANGLES = [0, 45, 90, 135, 180] as const
+
 function rodPorts(length: number): PortDef[] {
   const half = length / 2
   return [
@@ -20,21 +29,55 @@ function rodPorts(length: number): PortDef[] {
   ]
 }
 
-function socket(id: string, angleDeg: number, elevationDeg = 0): PortDef {
-  const yaw = (angleDeg * Math.PI) / 180
-  const pitch = (elevationDeg * Math.PI) / 180
-  const r = 0.28
-  const x = Math.sin(yaw) * Math.cos(pitch) * r
-  const y = Math.sin(pitch) * r
-  const z = Math.cos(yaw) * Math.cos(pitch) * r
-  const dx = Math.sin(yaw) * Math.cos(pitch)
-  const dy = Math.sin(pitch)
-  const dz = Math.cos(yaw) * Math.cos(pitch)
+/** Clips around hub axis Y (connector lying in XZ). */
+function clipsAroundY(angles: readonly number[], prefix: string): PortDef[] {
+  const r = SOCKET_RADIUS
+  return angles.map((deg, i) => {
+    const a = (deg * Math.PI) / 180
+    const x = Math.sin(a) * r
+    const z = Math.cos(a) * r
+    return {
+      id: `${prefix}${i}`,
+      kind: 'socket' as const,
+      position: [x, 0, z] as [number, number, number],
+      direction: [Math.sin(a), 0, Math.cos(a)] as [number, number, number],
+    }
+  })
+}
+
+/** Clips around hub axis Z (connector standing in XY) — second plate after a 90° slide join. */
+function clipsAroundZ(angles: readonly number[], prefix: string): PortDef[] {
+  const r = SOCKET_RADIUS
+  return angles.map((deg, i) => {
+    const a = (deg * Math.PI) / 180
+    const x = Math.sin(a) * r
+    const y = Math.cos(a) * r
+    return {
+      id: `${prefix}${i}`,
+      kind: 'socket' as const,
+      position: [x, y, 0] as [number, number, number],
+      direction: [Math.sin(a), Math.cos(a), 0] as [number, number, number],
+    }
+  })
+}
+
+/** Center slot/rail used to slide two connectors together perpendicularly. */
+function interlockPort(): PortDef {
   return {
-    id,
+    id: 'interlock',
+    kind: 'interlock',
+    position: [0, 0, 0],
+    // Hub-axis normal: partner plate rotates 90° around an in-plane axis.
+    direction: [0, 1, 0],
+  }
+}
+
+function axleSocket(): PortDef {
+  return {
+    id: 'axle',
     kind: 'socket',
-    position: [x, y, z],
-    direction: [dx, dy, dz],
+    position: [0, 0, SOCKET_RADIUS],
+    direction: [0, 0, 1],
   }
 }
 
@@ -43,76 +86,110 @@ const connectors: CatalogPiece[] = [
     id: 'conn-orange-straight',
     name: 'Straight Connector',
     category: 'connectors',
-    description: '180° in-line joint.',
+    description: '180° in-line C-clips.',
     color: '#fd7e14',
-    ports: [socket('s0', 0), socket('s1', 180)],
+    variant: 'plate',
+    ports: [...clipsAroundY([0, 180], 's'), interlockPort()],
   },
   {
-    id: 'conn-red-right',
-    name: 'Right-Angle Connector',
+    id: 'conn-red-3',
+    name: '3-Way Connector',
     category: 'connectors',
-    description: 'Classic 90° elbow.',
+    description: 'Classic red T — three C-clips.',
     color: '#fa5252',
-    ports: [socket('s0', 0), socket('s1', 90)],
+    variant: 'plate',
+    ports: [...clipsAroundY([0, 90, 180], 's'), interlockPort()],
   },
   {
-    id: 'conn-yellow-3way',
-    name: '3-Way Flat Connector',
+    id: 'conn-green-4',
+    name: '4-Way Connector',
     category: 'connectors',
-    description: 'Planar T-joint at 90° increments.',
+    description: 'Classic green plus hub.',
+    color: '#40c057',
+    variant: 'plate',
+    ports: [...clipsAroundY([0, 90, 180, 270], 's'), interlockPort()],
+  },
+  {
+    id: 'conn-yellow-5',
+    name: '5-Way Connector',
+    category: 'connectors',
+    description: 'Yellow flat hub with five C-clips.',
     color: '#fcc419',
-    ports: [socket('s0', 0), socket('s1', 90), socket('s2', 180)],
+    variant: 'plate',
+    ports: [...clipsAroundY([0, 45, 90, 135, 180], 's'), interlockPort()],
   },
   {
-    id: 'conn-green-4way',
-    name: '4-Way Flat Connector',
+    id: 'conn-white-8',
+    name: '8-Way Connector',
     category: 'connectors',
-    description: 'Plus-shaped planar hub.',
-    color: '#51cf66',
-    ports: [socket('s0', 0), socket('s1', 90), socket('s2', 180), socket('s3', 270)],
-  },
-  {
-    id: 'conn-purple-5way',
-    name: '5-Way Hub',
-    category: 'connectors',
-    description: 'Flat hub with five sockets.',
-    color: '#9775fa',
-    ports: [0, 72, 144, 216, 288].map((a, i) => socket(`s${i}`, a)),
-  },
-  {
-    id: 'conn-blue-8way',
-    name: '8-Way Hub',
-    category: 'connectors',
-    description: 'Dense planar hub every 45°.',
-    color: '#339af0',
-    ports: [0, 45, 90, 135, 180, 225, 270, 315].map((a, i) => socket(`s${i}`, a)),
-  },
-  {
-    id: 'conn-gray-3d',
-    name: '3D Corner Connector',
-    category: 'connectors',
-    description: 'Three mutually perpendicular sockets.',
-    color: '#868e96',
+    description: 'White flat hub — clips every 45°.',
+    color: '#f8f9fa',
+    accent: '#ced4da',
+    variant: 'plate',
     ports: [
-      socket('sx', 90, 0),
-      socket('sy', 0, 90),
-      socket('sz', 0, 0),
+      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 's'),
+      interlockPort(),
     ],
   },
   {
-    id: 'conn-white-ball',
-    name: 'Ball Connector',
+    id: 'conn-blue-slot',
+    name: 'Blue Slotted Connector',
     category: 'connectors',
-    description: 'Spherical hub with six cardinal sockets.',
-    color: '#e9ecef',
-    accent: '#adb5bd',
+    description:
+      '7 C-clips plus a center notch. Slide another connector through the notch for 3D hubs.',
+    color: '#1c7ed6',
+    variant: 'plate',
+    ports: [...clipsAroundY(BLUE_CLIP_ANGLES, 's'), interlockPort()],
+  },
+  {
+    id: 'conn-silver-half',
+    name: 'Silver Half Connector',
+    category: 'connectors',
+    description:
+      '5 C-clips on a half-circle with a rail. Slides into a blue notch (or another silver) for corners.',
+    color: '#adb5bd',
+    accent: '#868e96',
+    variant: 'half',
+    ports: [...clipsAroundY(SILVER_CLIP_ANGLES, 's'), interlockPort()],
+  },
+  {
+    id: 'hub-ball',
+    name: 'Ball Hub (2× Blue)',
+    category: 'connectors',
+    description:
+      'Two blue slotted connectors slid together — 8 clip directions on each of 2 axes.',
+    color: '#1c7ed6',
+    variant: 'ball',
     ports: [
-      socket('px', 90, 0),
-      socket('nx', 270, 0),
-      socket('py', 0, 90),
-      socket('ny', 0, -90),
-      socket('pz', 0, 0),
-      socket('nz', 180, 0),
+      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'a'),
+      ...clipsAroundZ([0, 45, 90, 135, 180, 225, 270, 315], 'b'),
+    ],
+  },
+  {
+    id: 'hub-mixed',
+    name: 'Mixed Hub (Silver + Blue)',
+    category: 'connectors',
+    description: 'Silver half slid into a blue — 5 clips on one axis, 8 on the other.',
+    color: '#1c7ed6',
+    accent: '#adb5bd',
+    variant: 'mixed',
+    ports: [
+      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'blue'),
+      ...clipsAroundZ(SILVER_CLIP_ANGLES, 'silver'),
+    ],
+  },
+  {
+    id: 'hub-corner',
+    name: '3D Corner (2× Silver)',
+    category: 'connectors',
+    description:
+      'Two silver halves slid together — 5 clips on each of 2 axes, open as a corner.',
+    color: '#adb5bd',
+    accent: '#868e96',
+    variant: 'corner',
+    ports: [
+      ...clipsAroundY(SILVER_CLIP_ANGLES, 'a'),
+      ...clipsAroundZ(SILVER_CLIP_ANGLES, 'b'),
     ],
   },
 ]
@@ -125,7 +202,7 @@ const wheels: CatalogPiece[] = [
     description: 'Rolling wheel with a center axle socket.',
     color: '#212529',
     accent: '#868e96',
-    ports: [socket('axle', 0)],
+    ports: [axleSocket()],
   },
   {
     id: 'wheel-rim',
@@ -134,7 +211,7 @@ const wheels: CatalogPiece[] = [
     description: 'Lightweight rim for carts and cranes.',
     color: '#ced4da',
     accent: '#495057',
-    ports: [socket('axle', 0)],
+    ports: [axleSocket()],
   },
 ]
 
@@ -145,7 +222,7 @@ const gears: CatalogPiece[] = [
     category: 'gears',
     description: 'Compact drive gear.',
     color: '#ff922b',
-    ports: [socket('axle', 0)],
+    ports: [axleSocket()],
   },
   {
     id: 'gear-large',
@@ -153,11 +230,9 @@ const gears: CatalogPiece[] = [
     category: 'gears',
     description: 'Wide gear for slow torque.',
     color: '#20c997',
-    ports: [socket('axle', 0)],
+    ports: [axleSocket()],
   },
 ]
-
-export const ROD_RADIUS_SCENE = ROD_RADIUS
 
 export const CATALOG: CatalogPiece[] = [
   ...ROD_SPECS.map((spec) => ({
