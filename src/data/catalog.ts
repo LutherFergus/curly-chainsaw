@@ -6,15 +6,57 @@ const ROD_RADIUS = 0.08
 export const SOCKET_RADIUS = 0.28
 export const ROD_RADIUS_SCENE = ROD_RADIUS
 
-/** Classic-ish K'NEX rod lengths in scene units. */
+/** Classic K'NEX rod lengths: center-to-center effective length uses √2 progression (green = 1). */
+const SQRT2 = Math.SQRT2
 const ROD_SPECS = [
-  { id: 'rod-gray', name: 'Gray Rod', color: '#9aa3ad', length: 1.0, description: 'Shortest rod — tight links and spacers.' },
-  { id: 'rod-green', name: 'Green Rod', color: '#2f9e44', length: 2.0, description: 'Short rod for compact frames.' },
-  { id: 'rod-yellow', name: 'Yellow Rod', color: '#f59f00', length: 3.0, description: 'Medium rod for everyday builds.' },
-  { id: 'rod-red', name: 'Red Rod', color: '#e03131', length: 4.5, description: 'Long rod for spans and towers.' },
-  { id: 'rod-blue', name: 'Blue Rod', color: '#1c7ed6', length: 6.5, description: 'Extra-long rod for big structures.' },
-  { id: 'rod-white', name: 'White Rod', color: '#f8f9fa', length: 8.5, description: 'Longest standard rod.' },
+  {
+    id: 'rod-green',
+    name: 'Green Rod',
+    color: '#2f9e44',
+    effective: 1,
+    description: 'Classic #1 rod — shortest standard length.',
+  },
+  {
+    id: 'rod-white',
+    name: 'White Rod',
+    color: '#f1f3f5',
+    effective: SQRT2,
+    description: 'Classic #2 rod (√2 × green).',
+  },
+  {
+    id: 'rod-blue',
+    name: 'Blue Rod',
+    color: '#1c7ed6',
+    effective: 2,
+    description: 'Classic #3 rod (2 × green).',
+  },
+  {
+    id: 'rod-yellow',
+    name: 'Yellow Rod',
+    color: '#f59f00',
+    effective: 2 * SQRT2,
+    description: 'Classic #4 rod (2√2 × green).',
+  },
+  {
+    id: 'rod-red',
+    name: 'Red Rod',
+    color: '#e03131',
+    effective: 4,
+    description: 'Classic #5 rod (4 × green).',
+  },
+  {
+    id: 'rod-gray',
+    name: 'Gray Rod',
+    color: '#868e96',
+    effective: 4 * SQRT2,
+    description: 'Classic #6 rod — longest standard length.',
+  },
 ] as const
+
+/** Physical body length so end-to-end snap yields classic effective span. */
+function rodBodyLength(effective: number): number {
+  return Math.max(0.35, 2 * (effective - SOCKET_RADIUS))
+}
 
 /** Full slotted plate: 7 C-clips; 8th position is the interlock notch. */
 export const FULL_CLIP_ANGLES = [0, 45, 90, 135, 180, 225, 270] as const
@@ -221,15 +263,18 @@ const gears: CatalogPiece[] = [
 ]
 
 export const CATALOG: CatalogPiece[] = [
-  ...ROD_SPECS.map((spec) => ({
-    id: spec.id,
-    name: spec.name,
-    category: 'rods' as const,
-    description: spec.description,
-    color: spec.color,
-    length: spec.length,
-    ports: rodPorts(spec.length),
-  })),
+  ...ROD_SPECS.map((spec) => {
+    const length = rodBodyLength(spec.effective)
+    return {
+      id: spec.id,
+      name: spec.name,
+      category: 'rods' as const,
+      description: spec.description,
+      color: spec.color,
+      length,
+      ports: rodPorts(length),
+    }
+  }),
   ...connectors,
   ...wheels,
   ...gears,

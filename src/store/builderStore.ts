@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Connection, PlacedPiece, ToolMode } from '../types/knex'
+import type { Connection, PlacementMode, PlacedPiece, ToolMode } from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
 import { allWorldPorts, findBestSnap, occupiedPortKeys, snapPointToGrid } from '../lib/math'
 import * as THREE from 'three'
@@ -16,6 +16,8 @@ interface BuilderState {
   selectedCatalogId: string | null
   selectedPieceId: string | null
   tool: ToolMode
+  placementMode: PlacementMode
+  menuOpen: boolean
   ghost: {
     catalogId: string
     position: [number, number, number]
@@ -28,6 +30,9 @@ interface BuilderState {
   } | null
   selectCatalog: (id: string | null) => void
   setTool: (tool: ToolMode) => void
+  setPlacementMode: (mode: PlacementMode) => void
+  setMenuOpen: (open: boolean) => void
+  toggleMenu: () => void
   selectPiece: (id: string | null) => void
   updateGhost: (point: THREE.Vector3) => void
   clearGhost: () => void
@@ -42,9 +47,11 @@ const identityRotation: [number, number, number, number] = [0, 0, 0, 1]
 export const useBuilderStore = create<BuilderState>((set, get) => ({
   pieces: [],
   connections: [],
-  selectedCatalogId: 'rod-yellow',
+  selectedCatalogId: null,
   selectedPieceId: null,
   tool: 'place',
+  placementMode: 'single',
+  menuOpen: true,
   ghost: null,
 
   selectCatalog: (id) =>
@@ -52,14 +59,22 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       selectedCatalogId: id,
       tool: id ? 'place' : get().tool,
       selectedPieceId: null,
+      // Selecting a piece collapses the palette until placement.
+      menuOpen: id ? false : true,
+      ghost: id ? get().ghost : null,
     }),
 
   setTool: (tool) =>
     set({
       tool,
       ghost: tool === 'place' ? get().ghost : null,
-      selectedCatalogId: tool === 'select' ? get().selectedCatalogId : get().selectedCatalogId,
     }),
+
+  setPlacementMode: (mode) => set({ placementMode: mode }),
+
+  setMenuOpen: (open) => set({ menuOpen: open }),
+
+  toggleMenu: () => set({ menuOpen: !get().menuOpen }),
 
   selectPiece: (id) => set({ selectedPieceId: id, tool: 'select' }),
 
@@ -95,7 +110,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       return
     }
 
-    const grid = snapPointToGrid(point, catalog.category === 'rods' ? 0.35 : 0.35)
+    const grid = snapPointToGrid(point, 0.35)
     set({
       ghost: {
         catalogId: selectedCatalogId,
@@ -109,7 +124,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   clearGhost: () => set({ ghost: null }),
 
   placeGhost: () => {
-    const { ghost, pieces, connections } = get()
+    const { ghost, pieces, connections, placementMode } = get()
     if (!ghost) return
 
     const id = createId()
@@ -130,10 +145,17 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       })
     }
 
+    const single = placementMode === 'single'
     set({
       pieces: [...pieces, nextPiece],
       connections: nextConnections,
       selectedPieceId: id,
+      // Always reopen the palette after a place.
+      menuOpen: true,
+      // Single mode: clear the active piece so the next place requires a new pick.
+      selectedCatalogId: single ? null : ghost.catalogId,
+      ghost: single ? null : { ...ghost, snap: null },
+      tool: 'place',
     })
   },
 
@@ -155,12 +177,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       connections: [],
       selectedPieceId: null,
       ghost: null,
+      menuOpen: true,
     }),
 
   rotateSelectedY: (deltaRad) => {
     const { selectedPieceId, pieces, connections } = get()
     if (!selectedPieceId) return
-    // Don't rotate pieces that are already locked into joints — keeps assemblies stable.
     const locked = connections.some(
       (c) => c.aPieceId === selectedPieceId || c.bPieceId === selectedPieceId,
     )

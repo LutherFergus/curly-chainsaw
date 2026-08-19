@@ -59,3 +59,6 @@ export interface PlacedPiece {
 }
 
 export type ToolMode = 'place' | 'select'
+
+/** single = pick → place → pick again; multiple = keep placing the same piece */
+export type PlacementMode = 'single' | 'multiple'
