@@ -31,18 +31,72 @@ export function PieceMesh({
 
   if (catalog.category === 'rods') {
     const length = catalog.length ?? 1
+    const coreRadius = ROD_RADIUS_SCENE * 0.42
+    const finWidth = ROD_RADIUS_SCENE * 0.62
+    const finDepth = ROD_RADIUS_SCENE * 0.28
+    const flangeRadius = ROD_RADIUS_SCENE * 1.05
+    const flangeThickness = 0.05
+    const grooveRadius = ROD_RADIUS_SCENE * 0.62
+    const grooveLength = 0.09
+    const shoulderLength = 0.07
+    const shaftLength = Math.max(
+      0.2,
+      length - (flangeThickness + grooveLength + shoulderLength) * 2,
+    )
     return (
-      <mesh rotation={[Math.PI / 2, 0, 0] /* align cylinder to Z */}>
-        <cylinderGeometry args={[ROD_RADIUS_SCENE, ROD_RADIUS_SCENE, length, 20]} />
-        <meshStandardMaterial {...materialProps} />
-        {/* End caps / slot nubs */}
-        {([-length / 2, length / 2] as const).map((z, i) => (
-          <mesh key={i} position={[0, z, 0]}>
-            <sphereGeometry args={[ROD_RADIUS_SCENE * 1.15, 16, 16]} />
-            <meshStandardMaterial {...materialProps} color={catalog.accent ?? catalog.color} />
+      <group>
+        {/* Core shaft along Z */}
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[coreRadius, coreRadius, shaftLength, 16]} />
+          <meshStandardMaterial {...materialProps} />
+        </mesh>
+
+        {/* "+\" profile rails so rods can grab connector clips perpendicularly */}
+        {[
+          [finWidth, finDepth],
+          [finDepth, finWidth],
+        ].map(([w, h], index) => (
+          <mesh key={index}>
+            <boxGeometry args={[w, h, shaftLength]} />
+            <meshStandardMaterial {...materialProps} />
           </mesh>
         ))}
-      </mesh>
+
+        {([-1, 1] as const).map((side) => {
+          const end = (side * length) / 2
+          const flangeCenter = end - side * (flangeThickness / 2)
+          const grooveCenter = end - side * (flangeThickness + grooveLength / 2)
+          const shoulderCenter =
+            end - side * (flangeThickness + grooveLength + shoulderLength / 2)
+
+          return (
+            <group key={side}>
+              {/* End flange */}
+              <mesh position={[0, 0, flangeCenter]} rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[flangeRadius, flangeRadius, flangeThickness, 18]} />
+                <meshStandardMaterial {...materialProps} />
+              </mesh>
+
+              {/* Inverted neck/groove that actually snaps into connector ribs */}
+              <mesh position={[0, 0, grooveCenter]} rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[grooveRadius, grooveRadius, grooveLength, 16]} />
+                <meshStandardMaterial
+                  {...materialProps}
+                  color={catalog.accent ?? catalog.color}
+                />
+              </mesh>
+
+              {/* Shoulder back to rod profile */}
+              <mesh position={[0, 0, shoulderCenter]} rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry
+                  args={[ROD_RADIUS_SCENE * 0.88, ROD_RADIUS_SCENE * 0.88, shoulderLength, 16]}
+                />
+                <meshStandardMaterial {...materialProps} />
+              </mesh>
+            </group>
+          )
+        })}
+      </group>
     )
   }
 
