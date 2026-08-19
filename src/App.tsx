@@ -6,11 +6,9 @@ import './App.css'
 function App() {
   return (
     <div className="app-shell">
+      <Viewer />
       <Sidebar />
-      <main className="workspace">
-        <Toolbar />
-        <Viewer />
-      </main>
+      <Toolbar />
     </div>
   )
 }

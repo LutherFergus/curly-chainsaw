@@ -7,7 +7,7 @@ export function Viewer() {
     <div className="viewer">
       <Canvas
         shadows
-        camera={{ position: [7, 6, 9], fov: 42, near: 0.1, far: 120 }}
+        camera={{ position: [7, 6, 9], fov: 42, near: 0.05, far: 120 }}
         dpr={[1, 2]}
         gl={{ antialias: true }}
       >
@@ -15,12 +15,6 @@ export function Viewer() {
           <Scene />
         </Suspense>
       </Canvas>
-      <div className="viewer-hint">
-        <span>Drag to orbit</span>
-        <span>Scroll to zoom</span>
-        <span>Click grid to place</span>
-        <span>Yellow = open C-clips · Cyan = rod ends · Orange = slotted center join</span>
-      </div>
     </div>
   )
 }
