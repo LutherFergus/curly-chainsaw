@@ -1,0 +1,6 @@
+---
+description: Merge completed PRs without waiting for the user to ask
+alwaysApply: true
+---
+
+When a coding task is finished and the PR is ready, mark it ready for review and merge it into `main` immediately (`gh pr merge --merge --delete-branch`). Do not wait for the user to say "merge" or "merged?". Only skip merging if blocked by conflicts, failing required checks you cannot fix, or an explicit user request not to merge.
