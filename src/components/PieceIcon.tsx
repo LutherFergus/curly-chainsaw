@@ -296,25 +296,55 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
     )
   }
 
-  const teeth = piece.teeth ?? (piece.id === 'gear-large' ? 10 : 8)
+  if (piece.category === 'gears') {
+    const teeth = Math.min(piece.teeth ?? 12, 18)
+    const tip = 26
+    const root = 20
+    const hub = piece.id === 'gear-large' ? 7 : 9
+    const cx = 32
+    const cy = 32
+    const pts: string[] = []
+    for (let i = 0; i < teeth; i++) {
+      const a = (i / teeth) * Math.PI * 2 - Math.PI / teeth
+      const t0 = a + Math.PI / teeth - Math.PI / teeth * 0.35
+      const t1 = a + Math.PI / teeth + Math.PI / teeth * 0.35
+      const v1 = a + (Math.PI * 2) / teeth
+      pts.push(
+        `${cx + Math.cos(a) * root},${cy + Math.sin(a) * root}`,
+        `${cx + Math.cos(t0) * tip},${cy + Math.sin(t0) * tip}`,
+        `${cx + Math.cos(t1) * tip},${cy + Math.sin(t1) * tip}`,
+        `${cx + Math.cos(v1) * root},${cy + Math.sin(v1) * root}`,
+      )
+    }
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <polygon points={pts.join(' ')} fill={color} />
+        {piece.id === 'gear-large' &&
+          Array.from({ length: 6 }).map((_, i) => {
+            const a = (i / 6) * Math.PI * 2
+            return (
+              <line
+                key={i}
+                x1={cx + Math.cos(a) * hub}
+                y1={cy + Math.sin(a) * hub}
+                x2={cx + Math.cos(a) * 17}
+                y2={cy + Math.sin(a) * 17}
+                stroke={accent}
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              />
+            )
+          })}
+        <circle cx={cx} cy={cy} r={hub} fill={accent} />
+        <circle cx={cx} cy={cy} r="3.2" fill="#1a1b1e" opacity="0.4" />
+      </svg>
+    )
+  }
+
+  // Fallback for unknown categories
   return (
     <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
       <circle cx="32" cy="32" r="12" fill={color} />
-      {Array.from({ length: Math.min(teeth, 16) }).map((_, i) => {
-        const a = (i / Math.min(teeth, 16)) * Math.PI * 2
-        return (
-          <rect
-            key={i}
-            x="29"
-            y="10"
-            width="6"
-            height="10"
-            rx="1"
-            fill={color}
-            transform={`rotate(${(a * 180) / Math.PI} 32 32)`}
-          />
-        )
-      })}
       <circle cx="32" cy="32" r="4" fill="#1a1b1e" opacity="0.3" />
     </svg>
   )

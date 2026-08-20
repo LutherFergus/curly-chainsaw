@@ -667,29 +667,128 @@ function WheelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   )
 }
 
+function makeSpurGearGeometry(
+  tipR: number,
+  boreR: number,
+  teeth: number,
+  depth: number,
+  innerR?: number,
+): THREE.ExtrudeGeometry {
+  const n = Math.max(6, Math.floor(teeth))
+  const pitch = (Math.PI * 2) / n
+  // Stubby trapezoid teeth sized by pitch so high tooth counts stay distinct.
+  const toothDepth = Math.max(
+    tipR * 0.055,
+    Math.min(tipR * 0.28, ((2 * Math.PI * tipR) / n) * 0.72),
+  )
+  const rootR = Math.max(boreR * 1.4, tipR - toothDepth)
+  const tipHalf = pitch * 0.28
+  const rimInner = Math.min(innerR ?? boreR, rootR * 0.92)
+
+  const shape = new THREE.Shape()
+  for (let i = 0; i < n; i++) {
+    const a = i * pitch - pitch / 2
+    const v0 = a
+    // Slight root flats so valleys read clearly between stubby tips.
+    const r0 = a + pitch * 0.08
+    const t0 = a + pitch / 2 - tipHalf
+    const t1 = a + pitch / 2 + tipHalf
+    const r1 = a + pitch - pitch * 0.08
+    const v1 = a + pitch
+    if (i === 0) shape.moveTo(Math.cos(v0) * rootR, Math.sin(v0) * rootR)
+    else shape.lineTo(Math.cos(v0) * rootR, Math.sin(v0) * rootR)
+    shape.lineTo(Math.cos(r0) * rootR, Math.sin(r0) * rootR)
+    shape.lineTo(Math.cos(t0) * tipR, Math.sin(t0) * tipR)
+    shape.lineTo(Math.cos(t1) * tipR, Math.sin(t1) * tipR)
+    shape.lineTo(Math.cos(r1) * rootR, Math.sin(r1) * rootR)
+    shape.lineTo(Math.cos(v1) * rootR, Math.sin(v1) * rootR)
+  }
+  shape.closePath()
+
+  const hole = new THREE.Path()
+  hole.absarc(0, 0, rimInner, 0, Math.PI * 2, true)
+  shape.holes.push(hole)
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 2,
+    steps: 1,
+  })
+  geo.translate(0, 0, -depth / 2)
+  return geo
+}
+
 function GearMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const r = catalog.radius ?? mm(GEAR_SMALL_OD_MM) / 2
   const t = catalog.thickness ?? mm(GEAR_SMALL_THICK_MM)
   const teeth = catalog.teeth ?? 14
   const crown = catalog.id === 'gear-crown' || catalog.id === 'gear-large'
-  const bore = ROD_RADIUS_SCENE * 1.02
-  const bodyR = r * 0.72
+  const spoked = catalog.id === 'gear-large' || teeth >= 60
+  const bore = ROD_RADIUS_SCENE * 1.05
+  const hubR = Math.min(r * (spoked ? 0.2 : 0.3), mm(9))
+  const hubT = t * (spoked ? 1.35 : 1.18)
+  const pitch = (Math.PI * 2) / Math.max(6, teeth)
+  const toothDepth = Math.max(r * 0.055, Math.min(r * 0.28, ((2 * Math.PI * r) / teeth) * 0.72))
+  const rootR = r - toothDepth
+  const rimInner = spoked ? Math.max(hubR * 1.6, rootR * 0.78) : bore
+
+  const bodyGeo = useMemo(
+    () => makeSpurGearGeometry(r, bore, teeth, t, rimInner),
+    [r, bore, teeth, t, rimInner],
+  )
+
   return (
     <group>
-      <AnnulusMesh outerR={bodyR} innerR={bore} depth={t} mat={mat} />
-      {Array.from({ length: teeth }).map((_, i) => {
-        const a = (i / teeth) * Math.PI * 2
-        return (
-          <mesh
-            key={i}
-            position={[Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86, crown ? t * 0.12 : 0]}
-            rotation={[0, 0, a]}
-          >
-            <boxGeometry args={[r * 0.18, r * 0.16, crown ? t * 1.2 : t]} />
-            <Plastic mat={mat} />
-          </mesh>
-        )
-      })}
+      <mesh geometry={bodyGeo}>
+        <Plastic mat={mat} />
+      </mesh>
+
+      <AnnulusMesh
+        outerR={hubR}
+        innerR={bore}
+        depth={hubT}
+        mat={mat}
+        color={catalog.accent ?? mat.color}
+      />
+
+      {spoked &&
+        Array.from({ length: 6 }).map((_, i) => {
+          const a = (i / 6) * Math.PI * 2
+          const inner = hubR * 1.02
+          const outer = rimInner * 0.98
+          const mid = (inner + outer) / 2
+          const len = Math.max(mm(2), outer - inner)
+          return (
+            <mesh
+              key={i}
+              position={[Math.cos(a) * mid, Math.sin(a) * mid, 0]}
+              rotation={[0, 0, a]}
+            >
+              <boxGeometry args={[len, Math.max(mm(1.8), r * 0.032), t * 0.72]} />
+              <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+            </mesh>
+          )
+        })}
+
+      {crown &&
+        Array.from({ length: teeth }).map((_, i) => {
+          const a = (i / teeth) * Math.PI * 2 + pitch / 2
+          const radial = rootR + toothDepth * 0.12
+          const tw = Math.max(mm(0.55), r * pitch * 0.4)
+          const th = Math.max(mm(0.85), toothDepth * 0.8)
+          const td = t * 0.5
+          return (
+            <mesh
+              key={`c${i}`}
+              position={[Math.cos(a) * radial, Math.sin(a) * radial, t * 0.32]}
+              rotation={[Math.PI / 2, 0, a]}
+            >
+              <boxGeometry args={[tw, th, td]} />
+              <Plastic mat={mat} />
+            </mesh>
+          )
+        })}
     </group>
   )
 }
