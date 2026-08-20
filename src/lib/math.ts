@@ -434,7 +434,161 @@ export function nearestSocketOnPointer(
   return nearestSocketAlongRay(ports, view.ray)
 }
 
-/** Snap a rod firmly along the hovered orb’s own direction — never a guessed tilt. */
+/** Socket-to-socket match for a rod that seats in two facing clips. */
+const ROD_SPAN_LENGTH_TOL = 0.2
+/** Clips must point along the span (toward each other) — ~44°, same as clip seating. */
+const ROD_SPAN_FACE = 0.72
+
+function isFreeClip(port: WorldPort): boolean {
+  return (
+    port.kind === 'socket' &&
+    !port.occupied &&
+    !isThroughHoleSocket(port.portId) &&
+    port.portId !== 'hole'
+  )
+}
+
+function rodSpanEndPort(catalog: CatalogPiece): PortDef | null {
+  return (
+    catalog.ports.find((p) => p.kind === 'rod-end' && p.id === 'end-a') ??
+    catalog.ports.find((p) => p.kind === 'rod-end') ??
+    null
+  )
+}
+
+function distPointToSegment2(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const abx = bx - ax
+  const aby = by - ay
+  const apx = px - ax
+  const apy = py - ay
+  const ab2 = abx * abx + aby * aby
+  if (ab2 < 1e-12) return Math.hypot(apx, apy)
+  const t = Math.min(1, Math.max(0, (apx * abx + apy * aby) / ab2))
+  return Math.hypot(px - (ax + abx * t), py - (ay + aby * t))
+}
+
+/**
+ * Unit A→B when those clips face each other and sit a catalog-rod apart.
+ * Skips two clips on the same hub (green vs 2×socket is a false match).
+ */
+function spanDirection(a: WorldPort, b: WorldPort, length: number): THREE.Vector3 | null {
+  if (a.pieceId === b.pieceId) return null
+  const av = new THREE.Vector3(...a.position)
+  const bv = new THREE.Vector3(...b.position)
+  const dist = av.distanceTo(bv)
+  if (dist < 1e-6) return null
+  if (Math.abs(dist - length) > ROD_SPAN_LENGTH_TOL) return null
+  const along = bv.clone().sub(av).multiplyScalar(1 / dist)
+  const aDir = new THREE.Vector3(...a.direction).normalize()
+  const bDir = new THREE.Vector3(...b.direction).normalize()
+  if (aDir.dot(along) < ROD_SPAN_FACE) return null
+  if (bDir.dot(along) > -ROD_SPAN_FACE) return null
+  return along
+}
+
+function poseRodOnSpan(
+  catalog: CatalogPiece,
+  hovered: WorldPort,
+  along: THREE.Vector3,
+): ReturnType<typeof findBestSnap> {
+  const local = rodSpanEndPort(catalog)
+  if (!local) return null
+  const facing: WorldPort = {
+    ...hovered,
+    direction: [along.x, along.y, along.z],
+  }
+  const pose = alignPieceToPort(local, facing)
+  return {
+    ...pose,
+    rotation: canonicalRotation(pose.rotation),
+    localPortId: local.id,
+    target: hovered,
+    distance: 0,
+  }
+}
+
+/** Yaw a rod onto the line between two facing clips when the length matches. */
+export function findRodSpanSnap(
+  catalog: CatalogPiece,
+  freePorts: WorldPort[],
+  hovered: WorldPort,
+): ReturnType<typeof findBestSnap> {
+  if (catalog.category !== 'rods') return null
+  const length = catalog.length
+  if (length == null || !isFreeClip(hovered)) return null
+  let best: { along: THREE.Vector3; err: number; face: number } | null = null
+  const hoveredPos = new THREE.Vector3(...hovered.position)
+  const hoveredDir = new THREE.Vector3(...hovered.direction).normalize()
+  for (const partner of freePorts) {
+    if (partner === hovered || !isFreeClip(partner)) continue
+    const along = spanDirection(hovered, partner, length)
+    if (!along) continue
+    const err = Math.abs(hoveredPos.distanceTo(new THREE.Vector3(...partner.position)) - length)
+    const face = hoveredDir.dot(along)
+    if (
+      !best ||
+      err < best.err - 1e-6 ||
+      (Math.abs(err - best.err) <= 1e-6 && face > best.face)
+    ) {
+      best = { along, err, face }
+    }
+  }
+  if (!best) return null
+  return poseRodOnSpan(catalog, hovered, best.along)
+}
+
+/** Pointer is over the gap between two facing clips — snap the rod across both. */
+function findRodSpanNearPointer(
+  catalog: CatalogPiece,
+  freePorts: WorldPort[],
+  view: PointerView,
+): ReturnType<typeof findBestSnap> {
+  if (catalog.category !== 'rods') return null
+  const length = catalog.length
+  if (length == null) return null
+  const clips = freePorts.filter(isFreeClip)
+  let best: { hovered: WorldPort; along: THREE.Vector3; score: number } | null = null
+  for (let i = 0; i < clips.length; i++) {
+    for (let j = 0; j < clips.length; j++) {
+      if (i === j) continue
+      const along = spanDirection(clips[i], clips[j], length)
+      if (!along) continue
+      const a = new THREE.Vector3(...clips[i].position)
+      const b = new THREE.Vector3(...clips[j].position)
+      const aNdc = a.clone().project(view.camera)
+      const bNdc = b.clone().project(view.camera)
+      if (aNdc.z < -1 || aNdc.z > 1 || bNdc.z < -1 || bNdc.z > 1) continue
+      const dist = distPointToSegment2(
+        view.ndc.x,
+        view.ndc.y,
+        aNdc.x,
+        aNdc.y,
+        bNdc.x,
+        bNdc.y,
+      )
+      const mid = a.clone().lerp(b, 0.5)
+      const midNdc = mid.clone().project(view.camera)
+      const edgeNdc = mid.clone().add(new THREE.Vector3(0.28, 0, 0)).project(view.camera)
+      const hitR = Math.max(0.04, Math.hypot(edgeNdc.x - midNdc.x, edgeNdc.y - midNdc.y) * 1.35)
+      if (dist > hitR) continue
+      if (!best || dist < best.score) best = { hovered: clips[i], along, score: dist }
+    }
+  }
+  if (!best) return null
+  return poseRodOnSpan(catalog, best.hovered, best.along)
+}
+
+/**
+ * Snap a rod to the hovered clip. If another clip faces it at this rod’s length,
+ * yaw onto that span so both ends seat at once — otherwise stay on the clip axis.
+ */
 export function findRodSnapOnPointer(
   catalog: CatalogPiece,
   freePorts: WorldPort[],
@@ -442,8 +596,14 @@ export function findRodSnapOnPointer(
 ): ReturnType<typeof findBestSnap> {
   if (catalog.category !== 'rods') return findBestSnapOnRay(catalog, freePorts, view.ray)
   const hovered = nearestSocketOnPointer(freePorts, view)
-  if (!hovered) return null
-  return findBestSnap(catalog, [hovered], new THREE.Vector3(...hovered.position))
+  if (hovered && !isThroughHoleSocket(hovered.portId)) {
+    const span = findRodSpanSnap(catalog, freePorts, hovered)
+    if (span) return span
+  }
+  if (hovered) {
+    return findBestSnap(catalog, [hovered], new THREE.Vector3(...hovered.position))
+  }
+  return findRodSpanNearPointer(catalog, freePorts, view)
 }
 
 export interface InterlockAimPose {
@@ -628,7 +788,10 @@ export function findInterlockSnapOnPointer(
 
 const CLIP_GRIP = 0.34
 
-/** If a rod end is sitting in a clip, lock to that clip’s axis — no in-between tilts. */
+/**
+ * If a rod end is sitting in a clip, lock to that clip — spanning both ends
+ * when a second clip faces it at this length, otherwise the clip’s own axis.
+ */
 export function axialSnapIfNearSocket(
   catalog: CatalogPiece,
   pose: { position: [number, number, number]; rotation: [number, number, number, number] },
@@ -653,6 +816,10 @@ export function axialSnapIfNearSocket(
     }
   }
   if (!best) return null
+  const span = findRodSpanSnap(catalog, freePorts, best.target)
+  if (span) {
+    return { ...span, distance: best.dist }
+  }
   const poseSnap = alignPieceToPort(best.local, best.target)
   return {
     ...poseSnap,
@@ -730,11 +897,42 @@ function geometryKey(
   return `${r(position[0])}|${r(position[1])}|${r(position[2])}|${r(q[0])}|${r(q[1])}|${r(q[2])}|${r(q[3])}`
 }
 
+function extraRodEndsOnConnectorPose(
+  catalog: CatalogPiece,
+  pose: { position: [number, number, number]; rotation: [number, number, number, number] },
+  usedPortId: string,
+  target: WorldPort,
+  freePorts: WorldPort[],
+): number {
+  const dummy: PlacedPiece = {
+    id: 'aim',
+    catalogId: catalog.id,
+    position: pose.position,
+    rotation: pose.rotation,
+  }
+  let extra = 0
+  for (const port of catalog.ports) {
+    if (port.kind !== 'socket' || port.id === usedPortId) continue
+    if (isThroughHoleSocket(port.id) || port.id === 'hole') continue
+    const clip = worldPort(dummy, port, false)
+    for (const other of freePorts) {
+      if (other.kind !== 'rod-end' || other.occupied) continue
+      if (other.pieceId === target.pieceId && other.portId === target.portId) continue
+      if (clipHoldsRodEnd(clip, other)) {
+        extra += 1
+        break
+      }
+    }
+  }
+  return extra
+}
+
 /** Discrete connector poses that can sit on a free rod end. */
 export function connectorPosesOnRodEnd(
   catalog: CatalogPiece,
   target: WorldPort,
   workNormal: THREE.Vector3,
+  freePorts: WorldPort[] = [],
 ): ConnectorAimPose[] {
   if (!isConnectorLike(catalog) || target.kind !== 'rod-end') return []
   const sockets = catalog.ports.filter(
@@ -760,6 +958,20 @@ export function connectorPosesOnRodEnd(
         fan: [fan.x, fan.y, fan.z],
         inPlane,
       })
+    }
+  }
+
+  if (freePorts.length) {
+    const ranked = poses.map((pose) => ({
+      pose,
+      extra: extraRodEndsOnConnectorPose(catalog, pose, pose.localPortId, target, freePorts),
+    }))
+    ranked.sort(
+      (a, b) => b.extra - a.extra || Number(b.pose.inPlane) - Number(a.pose.inPlane),
+    )
+    const bestExtra = ranked[0]?.extra ?? 0
+    if (bestExtra > 0) {
+      return ranked.filter((r) => r.extra === bestExtra).map((r) => r.pose)
     }
   }
 
