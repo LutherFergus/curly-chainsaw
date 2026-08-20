@@ -160,21 +160,64 @@
 .rail-section {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   width: 100%;
+}
+
+.rail-section-toggle {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  padding: 0.28rem 0.1rem 0.2rem;
+  background: rgba(255, 255, 255, 0.55);
+  color: rgba(33, 37, 41, 0.7);
+  cursor: pointer;
+  font: inherit;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.rail-section-toggle:hover {
+  background: #fff;
+  border-color: rgba(11, 114, 133, 0.2);
+  color: rgba(11, 114, 133, 0.95);
+}
+
+.rail-section.open .rail-section-toggle {
+  background: rgba(11, 114, 133, 0.08);
+  border-color: rgba(11, 114, 133, 0.16);
+  color: #0b7285;
 }
 
 .rail-section-label {
   width: 100%;
   text-align: center;
-  font-size: 0.58rem;
+  font-size: 0.55rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: rgba(33, 37, 41, 0.55);
   line-height: 1.1;
-  padding: 0.15rem 0 0.05rem;
   user-select: none;
+}
+
+.rail-section-toggle .chevron-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  opacity: 0.75;
+}
+
+.rail-section-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
 }
 
 .icon-btn,
