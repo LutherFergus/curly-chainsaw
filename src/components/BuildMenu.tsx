@@ -78,6 +78,7 @@ export function BuildMenu() {
         else rotateSelectedY(Math.PI / 4)
       }
       if (key === 'p') togglePerpSnap()
+      if (key === 'l') setTool('slide')
       if (key === 'v') setTool('select')
       if (key === 'b') setTool('place')
     }
@@ -153,6 +154,14 @@ export function BuildMenu() {
             title="Snap a connector clip onto a rod shaft at 90°"
           >
             Perp
+          </button>
+          <button
+            type="button"
+            className={`tool-btn${tool === 'slide' ? ' active' : ''}`}
+            onClick={() => setTool('slide')}
+            title="Slide a perp-clipped rod or a through-hole connector along the shaft (L)"
+          >
+            Slide
           </button>
           <button
             type="button"

@@ -28,6 +28,8 @@ import {
   nextUsableConnectorPose,
   occupancyKeys,
   mergeGeometricConnections,
+  slideJointForPiece,
+  rayAxisT,
   SNAP_DISTANCE,
   snapPointToGrid,
   type ConnectorAimPose,
@@ -88,6 +90,17 @@ interface BuilderState {
     targetPieceId: string
     targetPortId: string
   } | null
+  slide: {
+    pieceId: string
+    startPos: [number, number, number]
+    origin: [number, number, number]
+    dir: [number, number, number]
+    grabT: number
+    minDelta: number
+    maxDelta: number
+    moved: boolean
+    startSnapshot: Snapshot
+  } | null
   selectCatalog: (id: string | null) => void
   setTool: (tool: ToolMode) => void
   setPlacementMode: (mode: PlacementMode) => void
@@ -108,6 +121,9 @@ interface BuilderState {
   beginSlotSteer: (target: WorldPort) => void
   steerSlot: (view: PointerView) => void
   endSlotSteer: () => void
+  beginSlide: (pieceId: string, ray: THREE.Ray) => boolean
+  steerSlide: (ray: THREE.Ray) => void
+  endSlide: () => void
   clearGhost: () => void
   placeGhost: () => void
   deleteSelected: () => void
@@ -175,6 +191,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   rodAim: null,
   rodSteer: null,
   slotSteer: null,
+  slide: null,
 
   selectCatalog: (id) =>
     set({
@@ -186,15 +203,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       rodAim: id ? get().rodAim : null,
       rodSteer: id ? get().rodSteer : null,
       slotSteer: id ? get().slotSteer : null,
+      slide: null,
     }),
 
   setTool: (tool) =>
     set({
       tool,
+      selectedCatalogId: tool === 'slide' ? null : get().selectedCatalogId,
       ghost: tool === 'place' ? get().ghost : null,
       rodAim: tool === 'place' ? get().rodAim : null,
       rodSteer: tool === 'place' ? get().rodSteer : null,
       slotSteer: tool === 'place' ? get().slotSteer : null,
+      slide: null,
     }),
 
   setPlacementMode: (mode) => set({ placementMode: mode }),
@@ -209,7 +229,13 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   togglePerpSnap: () => set({ perpSnap: !get().perpSnap }),
 
   selectPiece: (id) =>
-    set({ selectedPieceId: id, tool: 'select', rodAim: null, rodSteer: null, slotSteer: null }),
+    set({
+      selectedPieceId: id,
+      tool: get().tool === 'slide' ? 'slide' : 'select',
+      rodAim: null,
+      rodSteer: null,
+      slotSteer: null,
+    }),
 
   updateGhost: (point, view) => {
     const { selectedCatalogId, pieces, connections, tool, rodAim, workNormal, perpSnap } = get()
@@ -573,6 +599,77 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   endSlotSteer: () => set({ slotSteer: null }),
 
+  beginSlide: (pieceId, ray) => {
+    const { pieces, connections } = get()
+    const piece = pieces.find((p) => p.id === pieceId)
+    if (!piece) return false
+    const joint = slideJointForPiece(piece, pieces, connections)
+    if (!joint) return false
+    const origin = new THREE.Vector3(...joint.origin)
+    const dir = new THREE.Vector3(...joint.dir)
+    const grabT = rayAxisT(ray, origin, dir)
+    if (grabT == null) return false
+    set({
+      selectedPieceId: pieceId,
+      slide: {
+        pieceId,
+        startPos: [...piece.position],
+        origin: joint.origin,
+        dir: joint.dir,
+        grabT,
+        minDelta: joint.minDelta,
+        maxDelta: joint.maxDelta,
+        moved: false,
+        startSnapshot: snapshotOf(get()),
+      },
+    })
+    return true
+  },
+
+  steerSlide: (ray) => {
+    const { slide, pieces, connections } = get()
+    if (!slide) return
+    const origin = new THREE.Vector3(...slide.origin)
+    const dir = new THREE.Vector3(...slide.dir)
+    const t = rayAxisT(ray, origin, dir)
+    if (t == null) return
+    const delta = THREE.MathUtils.clamp(t - slide.grabT, slide.minDelta, slide.maxDelta)
+    const nextPos: [number, number, number] = [
+      slide.startPos[0] + dir.x * delta,
+      slide.startPos[1] + dir.y * delta,
+      slide.startPos[2] + dir.z * delta,
+    ]
+    const piece = pieces.find((p) => p.id === slide.pieceId)
+    if (!piece) return
+    if (
+      Math.abs(nextPos[0] - piece.position[0]) < 1e-5 &&
+      Math.abs(nextPos[1] - piece.position[1]) < 1e-5 &&
+      Math.abs(nextPos[2] - piece.position[2]) < 1e-5
+    ) {
+      return
+    }
+    const nextPiece = { ...piece, position: nextPos }
+    if (poseCollides(nextPiece, pieces, connections)) return
+    set({
+      pieces: pieces.map((p) => (p.id === slide.pieceId ? nextPiece : p)),
+      slide: { ...slide, moved: true },
+    })
+  },
+
+  endSlide: () => {
+    const { slide, past } = get()
+    if (!slide) return
+    if (slide.moved) {
+      set({
+        slide: null,
+        past: [...past, slide.startSnapshot].slice(-HISTORY_LIMIT),
+        future: [],
+      })
+      return
+    }
+    set({ slide: null })
+  },
+
   clearGhost: () => {
     if (get().rodAim?.dragging || get().rodSteer || get().slotSteer) return
     set({ ghost: null, rodAim: null, rodSteer: null, slotSteer: null })
@@ -657,6 +754,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       rodAim: null,
       rodSteer: null,
       slotSteer: null,
+      slide: null,
       menuOpen: true,
     })),
 
@@ -765,6 +863,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       rodAim: null,
       rodSteer: null,
       slotSteer: null,
+      slide: null,
     })
   },
 
@@ -782,6 +881,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       rodAim: null,
       rodSteer: null,
       slotSteer: null,
+      slide: null,
     })
   },
 }))

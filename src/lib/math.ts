@@ -866,6 +866,186 @@ export function shaftHintPort(piece: PlacedPiece, cursor: THREE.Vector3): WorldP
   }
 }
 
+export interface SlideJoint {
+  pieceId: string
+  rodId: string
+  origin: [number, number, number]
+  dir: [number, number, number]
+  minDelta: number
+  maxDelta: number
+}
+
+function contactOnRod(
+  connector: PlacedPiece,
+  connectorCatalog: CatalogPiece,
+  portId: string,
+): THREE.Vector3 | null {
+  const port = connectorCatalog.ports.find((p) => p.id === portId)
+  if (!port) return null
+  if (isCenterSocket(port.id)) return new THREE.Vector3(...connector.position)
+  if (port.kind === 'socket') {
+    return new THREE.Vector3(...worldPort(connector, port, true).position)
+  }
+  return null
+}
+
+/**
+ * Axis slide for a perp clip on a shaft, or a hub with a rod through its center.
+ * Rod-end and interlock joints pin the piece, so those cannot slide.
+ */
+function slideJointFromSeated(
+  piece: PlacedPiece,
+  pieces: PlacedPiece[],
+  seated: Connection[],
+): SlideJoint | null {
+  const catalog = getCatalogPiece(piece.catalogId)
+  if (!catalog || (catalog.category !== 'rods' && catalog.category !== 'connectors')) return null
+  const byId = new Map(pieces.map((p) => [p.id, p]))
+
+  for (const conn of seated) {
+    if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
+    const mineIsA = conn.aPieceId === piece.id
+    const myPort = catalog.ports.find((p) => p.id === (mineIsA ? conn.aPortId : conn.bPortId))
+    const partner = byId.get(mineIsA ? conn.bPieceId : conn.aPieceId)
+    const partnerCatalog = partner ? getCatalogPiece(partner.catalogId) : undefined
+    const theirPort = partnerCatalog?.ports.find(
+      (p) => p.id === (mineIsA ? conn.bPortId : conn.aPortId),
+    )
+    if (myPort?.kind === 'interlock' || theirPort?.kind === 'interlock') return null
+    if (myPort?.kind === 'rod-end' || theirPort?.kind === 'rod-end') return null
+  }
+
+  const joints: { rod: PlacedPiece; contact: THREE.Vector3 }[] = []
+  for (const conn of seated) {
+    if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
+    const mineIsA = conn.aPieceId === piece.id
+    const myPort = catalog.ports.find((p) => p.id === (mineIsA ? conn.aPortId : conn.bPortId))
+    const partner = byId.get(mineIsA ? conn.bPieceId : conn.aPieceId)
+    const partnerCatalog = partner ? getCatalogPiece(partner.catalogId) : undefined
+    const theirPort = partnerCatalog?.ports.find(
+      (p) => p.id === (mineIsA ? conn.bPortId : conn.aPortId),
+    )
+    if (!myPort || !partner || !partnerCatalog || !theirPort) continue
+    const shaftMine = myPort.kind === 'shaft'
+    const shaftTheirs = theirPort.kind === 'shaft'
+    if (!shaftMine && !shaftTheirs) continue
+    const rod = shaftMine ? piece : partner
+    const connector = shaftMine ? partner : piece
+    const rodCatalog = getCatalogPiece(rod.catalogId)
+    const connCatalog = getCatalogPiece(connector.catalogId)
+    if (rodCatalog?.category !== 'rods' || connCatalog?.category !== 'connectors') continue
+    const clipId = shaftMine ? theirPort.id : myPort.id
+    const contact = contactOnRod(connector, connCatalog, clipId)
+    if (!contact) continue
+    joints.push({ rod, contact })
+  }
+  if (!joints.length) return null
+
+  const rod = joints[0].rod
+  if (joints.some((j) => j.rod.id !== rod.id)) return null
+  if (catalog.category === 'rods' && rod.id !== piece.id) return null
+
+  const { origin, dir, half } = rodAxis(rod)
+  const span = Math.max(0, half - SHAFT_END_INSET)
+  const slidingRod = catalog.category === 'rods'
+  let minDelta = Number.NEGATIVE_INFINITY
+  let maxDelta = Number.POSITIVE_INFINITY
+  for (const joint of joints) {
+    const t = joint.contact.clone().sub(origin).dot(dir)
+    if (slidingRod) {
+      minDelta = Math.max(minDelta, t - span)
+      maxDelta = Math.min(maxDelta, t + span)
+    } else {
+      minDelta = Math.max(minDelta, -span - t)
+      maxDelta = Math.min(maxDelta, span - t)
+    }
+  }
+  if (minDelta > maxDelta) return null
+  return {
+    pieceId: piece.id,
+    rodId: rod.id,
+    origin: [origin.x, origin.y, origin.z],
+    dir: [dir.x, dir.y, dir.z],
+    minDelta,
+    maxDelta,
+  }
+}
+
+export function slideJointForPiece(
+  piece: PlacedPiece,
+  pieces: PlacedPiece[],
+  connections: Connection[],
+): SlideJoint | null {
+  return slideJointFromSeated(piece, pieces, mergeGeometricConnections(pieces, connections))
+}
+
+export function canSlidePiece(
+  piece: PlacedPiece,
+  pieces: PlacedPiece[],
+  connections: Connection[],
+): boolean {
+  return slideJointForPiece(piece, pieces, connections) !== null
+}
+
+export function slidablePieceIds(pieces: PlacedPiece[], connections: Connection[]): Set<string> {
+  const seated = mergeGeometricConnections(pieces, connections)
+  const ids = new Set<string>()
+  for (const piece of pieces) {
+    if (slideJointFromSeated(piece, pieces, seated)) ids.add(piece.id)
+  }
+  return ids
+}
+
+export function nearestSlidablePiece(
+  pieces: PlacedPiece[],
+  connections: Connection[],
+  ray: THREE.Ray,
+  maxDist = 0.9,
+): PlacedPiece | null {
+  const seated = mergeGeometricConnections(pieces, connections)
+  let best: PlacedPiece | null = null
+  let bestDist = maxDist
+  const closest = new THREE.Vector3()
+  for (const piece of pieces) {
+    if (!slideJointFromSeated(piece, pieces, seated)) continue
+    const pos = new THREE.Vector3(...piece.position)
+    ray.closestPointToPoint(pos, closest)
+    const along = closest.clone().sub(ray.origin).dot(ray.direction)
+    if (along < 0.05) continue
+    let dist = closest.distanceTo(pos)
+    const catalog = getCatalogPiece(piece.catalogId)
+    if (catalog?.category === 'rods') {
+      const { origin, dir, half } = rodAxis(piece)
+      const t = rayAxisT(ray, origin, dir)
+      if (t != null) {
+        const clamped = THREE.MathUtils.clamp(t, -half, half)
+        const onRod = origin.clone().addScaledVector(dir, clamped)
+        dist = Math.min(dist, ray.distanceToPoint(onRod))
+      }
+    }
+    if (dist < bestDist) {
+      bestDist = dist
+      best = piece
+    }
+  }
+  return best
+}
+
+/** Parameter along an infinite axis for the closest point to a ray. */
+export function rayAxisT(ray: THREE.Ray, origin: THREE.Vector3, dir: THREE.Vector3): number | null {
+  const d1 = dir.clone().normalize()
+  const d2 = ray.direction.clone().normalize()
+  const w = new THREE.Vector3().subVectors(origin, ray.origin)
+  const a = d1.dot(d1)
+  const b = d1.dot(d2)
+  const c = d2.dot(d2)
+  const d = d1.dot(w)
+  const e = d2.dot(w)
+  const denom = a * c - b * b
+  if (Math.abs(denom) < 1e-8) return d1.dot(new THREE.Vector3().subVectors(ray.origin, origin))
+  return (b * e - c * d) / denom
+}
+
 export function pickConnectorAimPose(
   poses: ConnectorAimPose[],
   tip: THREE.Vector3,

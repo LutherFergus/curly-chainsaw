@@ -15,6 +15,8 @@ import {
   occupancyKeys,
   pickConnectorAimPose,
   portOrbPosition,
+  slidablePieceIds,
+  nearestSlidablePiece,
   type PointerView,
 } from '../lib/math'
 import {
@@ -40,6 +42,7 @@ function consumePlaceClick() {
 
 function PlacedPieces() {
   const pieces = useBuilderStore((s) => s.pieces)
+  const connections = useBuilderStore((s) => s.connections)
   const selectedPieceId = useBuilderStore((s) => s.selectedPieceId)
   const selectPiece = useBuilderStore((s) => s.selectPiece)
   const tool = useBuilderStore((s) => s.tool)
@@ -48,6 +51,10 @@ function PlacedPieces() {
   const placeGhost = useBuilderStore((s) => s.placeGhost)
   const rotateConnector = useBuilderStore((s) => s.rotateConnector)
   const tap = useRef<{ id: string; x: number; y: number } | null>(null)
+  const slidableIds = useMemo(
+    () => (tool === 'slide' ? slidablePieceIds(pieces, connections) : new Set<string>()),
+    [tool, pieces, connections],
+  )
 
   return (
     <group>
@@ -56,6 +63,7 @@ function PlacedPieces() {
         if (!catalog) return null
         const selected = piece.id === selectedPieceId
         const placing = tool === 'place' && Boolean(selectedCatalogId)
+        const slidable = slidableIds.has(piece.id)
         return (
           <group
             key={piece.id}
@@ -70,10 +78,10 @@ function PlacedPieces() {
               if (placing) return
               tap.current = { id: piece.id, x: e.clientX, y: e.clientY }
               e.stopPropagation()
-              if (tool === 'select') selectPiece(piece.id)
+              if (tool === 'select' || tool === 'slide') selectPiece(piece.id)
             }}
             onPointerUp={(e) => {
-              if (placing) return
+              if (placing || tool === 'slide') return
               const start = tap.current
               tap.current = null
               if (!start || start.id !== piece.id) return
@@ -100,8 +108,8 @@ function PlacedPieces() {
           >
             <PieceMesh
               catalog={catalog}
-              emissive={selected ? '#fff3bf' : '#000000'}
-              emissiveIntensity={selected ? 0.22 : 0}
+              emissive={selected ? '#fff3bf' : slidable ? '#74c0fc' : '#000000'}
+              emissiveIntensity={selected ? 0.22 : slidable ? 0.18 : 0}
             />
           </group>
         )
@@ -610,15 +618,75 @@ function SlotSteerGestures() {
   return null
 }
 
+function SlideGestures() {
+  const { camera, gl } = useThree()
+  const dragging = useRef(false)
+  const tool = useBuilderStore((s) => s.tool)
+  const slide = useBuilderStore((s) => s.slide)
+
+  useEffect(() => {
+    const canvas = gl.domElement
+    canvas.style.cursor = tool === 'slide' ? (slide ? 'grabbing' : 'grab') : ''
+    return () => {
+      canvas.style.cursor = ''
+    }
+  }, [tool, slide, gl])
+
+  useEffect(() => {
+    const canvas = gl.domElement
+
+    const onDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.pointerType === 'mouse') return
+      const state = useBuilderStore.getState()
+      if (state.tool !== 'slide') return
+      const view = pointerView(event, canvas, camera)
+      const hit = nearestSlidablePiece(state.pieces, state.connections, view.ray)
+      if (!hit) return
+      if (!state.beginSlide(hit.id, view.ray)) return
+      dragging.current = true
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
+
+    const onMove = (event: PointerEvent) => {
+      if (!dragging.current) return
+      const state = useBuilderStore.getState()
+      if (!state.slide) return
+      state.steerSlide(pointerView(event, canvas, camera).ray)
+    }
+
+    const onUp = () => {
+      if (!dragging.current) return
+      dragging.current = false
+      useBuilderStore.getState().endSlide()
+    }
+
+    canvas.addEventListener('pointerdown', onDown, { capture: true })
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [camera, gl])
+
+  return null
+}
+
 export function Scene() {
   const cameraNavMode = useBuilderStore((s) => s.cameraNavMode)
   const rodAim = useBuilderStore((s) => s.rodAim)
   const slotSteer = useBuilderStore((s) => s.slotSteer)
   const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
   const tool = useBuilderStore((s) => s.tool)
+  const slide = useBuilderStore((s) => s.slide)
   const placingRod =
     tool === 'place' && getCatalogPiece(selectedCatalogId ?? '')?.category === 'rods'
-  const lockView = Boolean(rodAim) || Boolean(slotSteer) || placingRod
+  const lockView = Boolean(rodAim) || Boolean(slotSteer) || placingRod || Boolean(slide)
   const controlsRef = useRef<OrbitControlsImpl>(null)
   const fly = cameraNavMode === 'fly' && !lockView
 
@@ -653,6 +721,7 @@ export function Scene() {
       <RodAimGestures />
       <RodSteerGestures />
       <SlotSteerGestures />
+      <SlideGestures />
       <PlacementPlane />
       <PlacedPieces />
       <GhostPiece />

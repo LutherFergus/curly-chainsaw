@@ -62,7 +62,7 @@ export interface PlacedPiece {
   rotation: [number, number, number, number]
 }
 
-export type ToolMode = 'place' | 'select'
+export type ToolMode = 'place' | 'select' | 'slide'
 
 /** single = pick → place → pick again; multiple = keep placing the same piece */
 export type PlacementMode = 'single' | 'multiple'
