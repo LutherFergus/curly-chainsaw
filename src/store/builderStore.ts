@@ -42,6 +42,14 @@ import {
   type PointerView,
 } from '../lib/math'
 import { ghostCollides, poseCollides, type GhostSnap } from '../lib/collision'
+import {
+  buildSession,
+  hasLastSession,
+  loadAutosave,
+  loadLastSession as readLastSession,
+  saveAutosave,
+  type SessionPayload,
+} from '../lib/session'
 import * as THREE from 'three'
 
 let nextId = 1
@@ -49,6 +57,25 @@ let nextId = 1
 function createId(): string {
   return `piece-${nextId++}`
 }
+
+function applySessionState(session: SessionPayload): Partial<BuilderState> {
+  nextId = session.nextId
+  return {
+    pieces: session.pieces,
+    connections: session.connections,
+    selectedPieceId: null,
+    selectedCatalogId: null,
+    ghost: null,
+    rodAim: null,
+    rodSteer: null,
+    slotSteer: null,
+    slide: null,
+    hasSavedSession: session.pieces.length > 0 || hasLastSession(),
+  }
+}
+
+const bootSession = typeof localStorage !== 'undefined' ? loadAutosave() : null
+if (bootSession) nextId = bootSession.nextId
 
 interface Snapshot {
   pieces: PlacedPiece[]
@@ -108,6 +135,8 @@ interface BuilderState {
     moved: boolean
     startSnapshot: Snapshot
   } | null
+  /** True when a non-empty last session exists in localStorage. */
+  hasSavedSession: boolean
   selectCatalog: (id: string | null) => void
   setTool: (tool: ToolMode) => void
   setPlacementMode: (mode: PlacementMode) => void
@@ -135,6 +164,8 @@ interface BuilderState {
   placeGhost: () => void
   deleteSelected: () => void
   clearAll: () => void
+  /** Restore the last non-empty autosaved build (e.g. after Clear). */
+  loadLastSession: () => boolean
   rotateSelectedY: (deltaRad: number) => void
   rotateConnector: (id: string, mode?: ConnectorRotateMode) => void
   rotateSelectedOpposite: () => void
@@ -181,8 +212,8 @@ function withHistory(
 }
 
 export const useBuilderStore = create<BuilderState>((set, get) => ({
-  pieces: [],
-  connections: [],
+  pieces: bootSession?.pieces ?? [],
+  connections: bootSession?.connections ?? [],
   selectedCatalogId: null,
   selectedPieceId: null,
   tool: 'place',
@@ -199,6 +230,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   rodSteer: null,
   slotSteer: null,
   slide: null,
+  hasSavedSession: hasLastSession(),
 
   selectCatalog: (id) =>
     set({
@@ -960,6 +992,13 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       menuOpen: true,
     })),
 
+  loadLastSession: () => {
+    const session = readLastSession()
+    if (!session || session.pieces.length === 0) return false
+    withHistory(get, set, () => applySessionState(session))
+    return true
+  },
+
   rotateSelectedY: (deltaRad) => {
     const { selectedPieceId, pieces, connections, workNormal } = get()
     if (!selectedPieceId) return
@@ -1087,3 +1126,28 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     })
   },
 }))
+
+let autosaveTimer: ReturnType<typeof setTimeout> | undefined
+
+function persistSession(state: BuilderState) {
+  const session = buildSession(state.pieces, state.connections, nextId)
+  saveAutosave(session)
+  const available = hasLastSession()
+  if (state.hasSavedSession !== available) {
+    useBuilderStore.setState({ hasSavedSession: available })
+  }
+}
+
+useBuilderStore.subscribe((state, prev) => {
+  if (state.pieces === prev.pieces && state.connections === prev.connections) return
+  if (autosaveTimer !== undefined) clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = undefined
+    persistSession(useBuilderStore.getState())
+  }, 250)
+})
+
+// Keep last-session in sync with a hydrated non-empty boot build.
+if (bootSession && bootSession.pieces.length > 0) {
+  persistSession(useBuilderStore.getState())
+}
