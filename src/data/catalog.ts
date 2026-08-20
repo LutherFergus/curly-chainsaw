@@ -848,6 +848,7 @@ export function isHiddenFromPalette(piece: CatalogPiece): boolean {
     piece.category === 'clips' ||
     piece.category === 'chain' ||
     piece.category === 'panels' ||
+    Boolean(piece.flexi) ||
     isPreassembledHub(piece)
   )
 }
