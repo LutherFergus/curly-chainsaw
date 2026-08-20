@@ -725,7 +725,7 @@ export function PieceMesh({
   }
 
   if (catalog.category === 'rods') {
-    // Same approach as the rod-diameter agent: solid constant-Ø shaft between end detents.
+    // Classic rods: solid constant-Ø shaft between end detents (flange + snap groove).
     const length = catalog.length ?? 1
     const shaftRadius = ROD_RADIUS_SCENE
     const flangeRadius = mm(8.2) / 2
