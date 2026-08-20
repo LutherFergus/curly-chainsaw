@@ -385,39 +385,25 @@ export function PieceMesh({
   }
 
   if (catalog.category === 'rods') {
+    // Classic rods: constant Ø shaft between end detents (flange + snap groove).
     const length = catalog.length ?? 1
-    const coreRadius = ROD_RADIUS_SCENE * 0.42
-    const finWidth = ROD_RADIUS_SCENE * 0.62
-    const finDepth = ROD_RADIUS_SCENE * 0.28
+    const shaftRadius = ROD_RADIUS_SCENE
     const flangeRadius = mm(8.2) / 2
     const flangeThickness = mm(1.4)
     const grooveRadius = mm(4.8) / 2
     const grooveLength = mm(1.6)
-    const shoulderLength = mm(3.2)
-    const shoulderRadius = mm(6.0) / 2
-    const endStack = flangeThickness + grooveLength + shoulderLength
+    const endStack = flangeThickness + grooveLength
     const shaftLength = Math.max(mm(2), length - endStack * 2)
     return (
       <group>
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[coreRadius, coreRadius, shaftLength, 16]} />
+          <cylinderGeometry args={[shaftRadius, shaftRadius, shaftLength, 20]} />
           <Plastic mat={mat} />
         </mesh>
-        {[
-          [finWidth, finDepth],
-          [finDepth, finWidth],
-        ].map(([w, h], index) => (
-          <mesh key={index}>
-            <boxGeometry args={[w, h, shaftLength]} />
-            <Plastic mat={mat} />
-          </mesh>
-        ))}
         {([-1, 1] as const).map((side) => {
           const end = (side * length) / 2
           const flangeCenter = end - side * (flangeThickness / 2)
           const grooveCenter = end - side * (flangeThickness + grooveLength / 2)
-          const shoulderCenter =
-            end - side * (flangeThickness + grooveLength + shoulderLength / 2)
           return (
             <group key={side}>
               <mesh position={[0, 0, flangeCenter]} rotation={[Math.PI / 2, 0, 0]}>
@@ -427,12 +413,6 @@ export function PieceMesh({
               <mesh position={[0, 0, grooveCenter]} rotation={[Math.PI / 2, 0, 0]}>
                 <cylinderGeometry args={[grooveRadius, grooveRadius, grooveLength, 16]} />
                 <Plastic mat={mat} color={catalog.accent ?? catalog.color} />
-              </mesh>
-              <mesh position={[0, 0, shoulderCenter]} rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry
-                  args={[shoulderRadius, shoulderRadius, shoulderLength, 16]}
-                />
-                <Plastic mat={mat} />
               </mesh>
             </group>
           )
