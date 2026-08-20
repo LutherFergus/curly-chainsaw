@@ -54,10 +54,9 @@ function Plastic({
 }
 
 /**
- * Open C-clip — opposite of a rod end.
- * Mouth opens along hub axis (+Y) so a rod’s “+” snaps in perpendicularly.
- * Local +Z is radial out of the hub. Socket end wall sits at SOCKET_RADIUS
- * (10.1 mm); gripping arms extend outward over the seated rod.
+ * Open C-clip — a pair of gripping arms with no floor or lid.
+ * Rods snap in from either face. Local +Z is radial out of the hub.
+ * Socket end wall sits at SOCKET_RADIUS (10.1 mm); arms extend outward.
  */
 function CClip({ mat, accent }: { mat: MatProps; accent?: string }) {
   const jawThick = mm(1.9)
@@ -91,14 +90,9 @@ function CClip({ mat, accent }: { mat: MatProps; accent?: string }) {
         <boxGeometry args={[jawThick, jawHeight, armLen]} />
         <Plastic mat={mat} />
       </mesh>
-      {/* Bottom only — top open for perpendicular + snap */}
-      <mesh position={[0, -(jawHeight / 2 - jawThick / 2), zArmMid]}>
-        <boxGeometry args={[mouth + jawThick * 2, jawThick, armLen]} />
-        <Plastic mat={mat} />
-      </mesh>
       {/* Retaining ribs near the end wall, into the rod annular groove */}
       {([-1, 1] as const).map((side) => (
-        <mesh key={side} position={[side * (mouth / 2 - ribR * 0.35), mm(0.4), ribZ]}>
+        <mesh key={side} position={[side * (mouth / 2 - ribR * 0.35), 0, ribZ]}>
           <sphereGeometry args={[ribR, 10, 10]} />
           <Plastic mat={mat} color={accent ?? '#ffffff'} />
         </mesh>
