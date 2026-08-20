@@ -243,7 +243,7 @@ function shaftThroughDisk(rod: PlacedPiece, disk: Disk): boolean {
   if (Math.abs(dir.dot(disk.axis)) < 0.9) return false
   const delta = disk.origin.clone().sub(origin)
   const radial = delta.clone().addScaledVector(dir, -delta.dot(dir)).length()
-  return radial < ROD_HIT * 1.8
+  return radial < ROD_HIT * 2.4
 }
 
 function pairOverlaps(a: PlacedPiece, b: PlacedPiece): boolean {

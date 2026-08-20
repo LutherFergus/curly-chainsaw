@@ -257,7 +257,7 @@ export function alignPieceToPort(
   localPort: PortDef,
   target: WorldPort,
 ): { position: [number, number, number]; rotation: [number, number, number, number] } {
-  if (localPort.kind === 'shaft' && isCenterSocket(target.portId)) {
+  if (localPort.kind === 'shaft' && isThroughHoleSocket(target.portId)) {
     const localDir = new THREE.Vector3(...localPort.direction).normalize()
     const targetDir = new THREE.Vector3(...target.direction).normalize()
     const rotation = new THREE.Quaternion().setFromUnitVectors(localDir, targetDir)
@@ -330,7 +330,7 @@ export function findBestSnap(
           !isThroughHoleSocket(target.portId)) ||
         (localPort.kind === 'shaft' &&
           target.kind === 'socket' &&
-          isCenterSocket(target.portId)) ||
+          isThroughHoleSocket(target.portId)) ||
         (localPort.kind === 'socket' &&
           target.kind === 'rod-end' &&
           !isThroughHoleSocket(localPort.id)) ||
@@ -646,7 +646,7 @@ export function axialSnapIfNearSocket(
     if (local.kind !== 'rod-end') continue
     const end = new THREE.Vector3(...worldPort(dummy, local, false).position)
     for (const target of freePorts) {
-      if (target.kind !== 'socket' || isCenterSocket(target.portId) || target.occupied) continue
+      if (target.kind !== 'socket' || isThroughHoleSocket(target.portId) || target.occupied) continue
       const dist = end.distanceTo(new THREE.Vector3(...target.position))
       if (dist > CLIP_GRIP) continue
       if (!best || dist < best.dist) best = { local, target, dist }
