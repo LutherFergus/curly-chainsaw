@@ -268,24 +268,51 @@ function rodEndClipPorts(): PortDef[] {
 }
 
 function panelSquarePorts(side: number): PortDef[] {
+  // Tips sit on corners along the diagonals (an “X”), centered halfway on each vertex.
   const half = side / 2
-  const tip = SOCKET_RADIUS * 0.85
-  return [
-    { id: 'tip-n', kind: 'rod-end', position: [0, 0, half + tip], direction: [0, 0, 1] },
-    { id: 'tip-e', kind: 'rod-end', position: [half + tip, 0, 0], direction: [1, 0, 0] },
-    { id: 'tip-s', kind: 'rod-end', position: [0, 0, -(half + tip)], direction: [0, 0, -1] },
-    { id: 'tip-w', kind: 'rod-end', position: [-(half + tip), 0, 0], direction: [-1, 0, 0] },
+  const tipLen = SOCKET_RADIUS * 0.85
+  const corners: [number, number][] = [
+    [1, 1],
+    [1, -1],
+    [-1, -1],
+    [-1, 1],
   ]
+  return corners.map(([sx, sz], i) => {
+    const inv = 1 / Math.SQRT2
+    const dx = sx * inv
+    const dz = sz * inv
+    return {
+      id: `tip-${i}`,
+      kind: 'rod-end' as const,
+      position: [sx * half + dx * (tipLen / 2), 0, sz * half + dz * (tipLen / 2)],
+      direction: [dx, 0, dz],
+    }
+  })
 }
 
 function panelTriPorts(leg: number): PortDef[] {
+  // Match PanelMesh extrusion after rotateX(-π/2): (0,-half), (±half,+half).
   const half = leg / 2
-  const tip = SOCKET_RADIUS * 0.85
-  return [
-    { id: 'tip-a', kind: 'rod-end', position: [0, 0, half + tip], direction: [0, 0, 1] },
-    { id: 'tip-b', kind: 'rod-end', position: [half + tip, 0, -half], direction: [1, 0, 0] },
-    { id: 'tip-c', kind: 'rod-end', position: [-(half + tip), 0, -half], direction: [-1, 0, 0] },
+  const tipLen = SOCKET_RADIUS * 0.85
+  const verts: [number, number][] = [
+    [0, -half],
+    [half, half],
+    [-half, half],
   ]
+  const centroidZ = half / 3
+  return verts.map(([vx, vz], i) => {
+    let dx = vx
+    let dz = vz - centroidZ
+    const len = Math.hypot(dx, dz) || 1
+    dx /= len
+    dz /= len
+    return {
+      id: `tip-${i}`,
+      kind: 'rod-end' as const,
+      position: [vx + dx * (tipLen / 2), 0, vz + dz * (tipLen / 2)],
+      direction: [dx, 0, dz],
+    }
+  })
 }
 
 function chainPorts(length: number): PortDef[] {
@@ -705,8 +732,8 @@ function makePanel(
     name,
     category: 'panels',
     description: tri
-      ? `Right-triangle panel — leg ${PANEL_SIDE_MM[size]} mm with three rod-tip corners.`
-      : `Square panel — ${PANEL_SIDE_MM[size]}×${PANEL_SIDE_MM[size]} mm body with edge rod tips.`,
+      ? `Right-triangle panel — leg ${PANEL_SIDE_MM[size]} mm with corner rod tips.`
+      : `Square panel — ${PANEL_SIDE_MM[size]}×${PANEL_SIDE_MM[size]} mm body with diagonal corner rod tips.`,
     color,
     accent: '#212529',
     variant: tri ? 'panel-tri' : 'panel-square',
@@ -817,7 +844,12 @@ export function isPreassembledHub(piece: CatalogPiece): boolean {
 
 /** Categories kept in data but not shown in the left piece menu. */
 export function isHiddenFromPalette(piece: CatalogPiece): boolean {
-  return piece.category === 'clips' || piece.category === 'chain' || isPreassembledHub(piece)
+  return (
+    piece.category === 'clips' ||
+    piece.category === 'chain' ||
+    piece.category === 'panels' ||
+    isPreassembledHub(piece)
+  )
 }
 
 /** Flat/3D hubs and specialty clips that use C-clip snap (end-on + Perp). */

@@ -640,7 +640,7 @@ function PanelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const side = catalog.length ?? mm(64)
   const thick = catalog.thickness ?? mm(PANEL_THICK_MM)
   const tri = catalog.variant === 'panel-tri'
-  const tip = SOCKET_RADIUS * 0.85
+  const tipLen = SOCKET_RADIUS * 0.85
 
   const bodyGeo = useMemo(() => {
     if (!tri) {
@@ -672,14 +672,21 @@ function PanelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
         .map((p) => (
           <mesh
             key={p.id}
+            // Center the detent on the corner so half sits on the panel, half sticks out.
             position={[
-              p.position[0] - p.direction[0] * tip * 0.35,
+              p.position[0] - p.direction[0] * (tipLen / 2),
               p.position[1],
-              p.position[2] - p.direction[2] * tip * 0.35,
+              p.position[2] - p.direction[2] * (tipLen / 2),
             ]}
-            rotation={[Math.PI / 2, 0, Math.atan2(p.direction[0], p.direction[2])]}
+            rotation={[
+              Math.PI / 2,
+              0,
+              Math.atan2(p.direction[0], p.direction[2]),
+            ]}
           >
-            <cylinderGeometry args={[ROD_RADIUS_SCENE * 0.85, ROD_RADIUS_SCENE * 0.85, tip, 12]} />
+            <cylinderGeometry
+              args={[ROD_RADIUS_SCENE * 0.85, ROD_RADIUS_SCENE * 0.85, tipLen, 12]}
+            />
             <Plastic mat={mat} color={catalog.accent ?? mat.color} />
           </mesh>
         ))}
