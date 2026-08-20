@@ -240,26 +240,29 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
     )
   }
 
-  const teeth = piece.teeth ?? (piece.id === 'gear-large' ? 10 : 8)
+  const teeth = Math.min(piece.teeth ?? 14, 16)
+  const crown = piece.variant === 'gear-crown' || piece.variant === 'gear-multi'
+  const r = piece.id === 'gear-large' || piece.id === 'gear-multi' ? 16 : piece.teeth === 34 ? 14 : 11
   return (
     <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
-      <circle cx="32" cy="32" r="12" fill={color} />
-      {Array.from({ length: Math.min(teeth, 16) }).map((_, i) => {
-        const a = (i / Math.min(teeth, 16)) * Math.PI * 2
+      <circle cx="32" cy="32" r={r * 0.72} fill={color} />
+      {Array.from({ length: teeth }).map((_, i) => {
+        const a = (i / teeth) * Math.PI * 2
         return (
           <rect
             key={i}
-            x="29"
-            y="10"
-            width="6"
-            height="10"
-            rx="1"
-            fill={color}
+            x={32 - 2}
+            y={32 - r}
+            width="4"
+            height={r * 0.38}
+            rx="0.8"
+            fill={crown ? (accent ?? color) : color}
             transform={`rotate(${(a * 180) / Math.PI} 32 32)`}
           />
         )
       })}
-      <circle cx="32" cy="32" r="4" fill="#1a1b1e" opacity="0.3" />
+      <circle cx="32" cy="32" r="3.5" fill="#1a1b1e" opacity="0.3" />
+      {piece.pushOn && <circle cx="32" cy="32" r="5.5" fill="none" stroke={accent} strokeWidth="1.5" />}
     </svg>
   )
 }

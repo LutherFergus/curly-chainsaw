@@ -29,6 +29,9 @@ export type ConnectorVariant =
   | 'panel-square'
   | 'panel-tri'
   | 'chain-link'
+  | 'gear-spur'
+  | 'gear-crown'
+  | 'gear-multi'
 
 export interface PortDef {
   id: string
@@ -54,8 +57,14 @@ export interface CatalogPiece {
   radius?: number
   /** Axial thickness (scene) for spacers, gears, wheels, panels */
   thickness?: number
-  /** Gear tooth count when applicable */
+  /** Gear tooth count when applicable (outer track for multi-track) */
   teeth?: number
+  /** Inner track tooth count for multi-track gears */
+  innerTeeth?: number
+  /** Inner track outer radius (scene) for multi-track gears */
+  innerRadius?: number
+  /** Push-on axle (friction fit) vs free-spin clip-lock */
+  pushOn?: boolean
   /** Flexible rod (same snap as rigid; visual bend later) */
   flexi?: boolean
   /** Visual / assembly style */
