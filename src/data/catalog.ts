@@ -182,6 +182,17 @@ const connectors: CatalogPiece[] = [
     ports: withCenters([...clipsAroundY([0, 180], 's'), interlockPort()], 'plate'),
   },
   {
+    id: 'conn-grey-2',
+    name: '2-Way Corner Connector',
+    category: 'connectors',
+    description:
+      'Classic light-grey 2-way — C-clips at 0° and 90°. Flat corner hub; does not combine with other connectors.',
+    color: '#ced4da',
+    accent: '#868e96',
+    variant: 'plate',
+    ports: withCenters(clipsAroundY([0, 90], 's'), 'plate'),
+  },
+  {
     id: 'conn-90',
     name: '90 Connector',
     category: 'connectors',
@@ -189,6 +200,16 @@ const connectors: CatalogPiece[] = [
     color: '#fa5252',
     variant: 'plate',
     ports: withCenters(clipsAroundY([0, 45, 90], 's'), 'plate'),
+  },
+  {
+    id: 'conn-green-4',
+    name: '4-Way Connector',
+    category: 'connectors',
+    description:
+      'Classic green flat 4-way — C-clips at 0°, 90°, 180°, and 270° (no diagonals, no 3D slot).',
+    color: '#2f9e44',
+    variant: 'plate',
+    ports: withCenters(clipsAroundY([0, 90, 180, 270], 's'), 'plate'),
   },
   {
     id: 'conn-yellow-5',

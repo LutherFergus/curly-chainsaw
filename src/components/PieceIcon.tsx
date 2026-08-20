@@ -95,22 +95,22 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   }
 
   if (piece.category === 'connectors') {
-    const sockets = piece.ports.filter(
-      (p) => p.kind === 'socket' && !p.id.startsWith('center'),
-    ).length
-    const count = Math.min(8, Math.max(2, sockets))
+    // Clip dots follow catalog directions (XZ plate) so grey 2-way is 90°, not 180°.
+    const clipDirs = piece.ports.filter(
+      (p) =>
+        p.kind === 'socket' &&
+        !p.id.startsWith('center') &&
+        Math.abs(p.direction[1]) <= 0.35,
+    )
     return (
       <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
         <circle cx="32" cy="32" r="10" fill={color} />
         <circle cx="32" cy="32" r="3.5" fill="#1a1b1e" opacity="0.28" />
-        {Array.from({ length: count }).map((_, i) => {
-          const a = (i / count) * Math.PI * 2 - Math.PI / 2
-          // 90 connector: fan in a quarter
-          const useFan = piece.id === 'conn-90'
-          const angle = useFan ? ((i / Math.max(1, count - 1)) * Math.PI) / 2 - Math.PI / 2 : a
+        {clipDirs.map((port, i) => {
+          const angle = Math.atan2(port.direction[0], port.direction[2]) - Math.PI / 2
           return (
             <circle
-              key={i}
+              key={port.id ?? i}
               cx={32 + Math.cos(angle) * 18}
               cy={32 + Math.sin(angle) * 18}
               r="3.2"
