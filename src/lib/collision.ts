@@ -124,6 +124,9 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
 function pairOverlaps(a: PlacedPiece, b: PlacedPiece): boolean {
   const ca = getCatalogPiece(a.catalogId)
   const cb = getCatalogPiece(b.catalogId)
+  // Hubs nest, stack, and slide together on a shaft — they do not collide.
+  // Collision is for rods (and wheels/gears) that would pass through a piece.
+  if (ca?.category === 'connectors' && cb?.category === 'connectors') return false
   const clips = ca?.category === 'rods' || cb?.category === 'rods'
   return capsulesOverlap(capsulesFor(a, clips), capsulesFor(b, clips))
 }
