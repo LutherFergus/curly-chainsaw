@@ -183,14 +183,14 @@ const connectors: CatalogPiece[] = [
   },
   {
     id: 'conn-grey-2',
-    name: '2-Way Corner Connector',
+    name: '2-Way Angle Connector',
     category: 'connectors',
     description:
-      'Classic light-grey 2-way — C-clips at 0° and 90°. Flat corner hub; does not combine with other connectors.',
+      'Classic light-grey 2-way — C-clips at 0° and 45°. Flat angle hub; does not combine with other connectors.',
     color: '#ced4da',
     accent: '#868e96',
     variant: 'plate',
-    ports: withCenters(clipsAroundY([0, 90], 's'), 'plate'),
+    ports: withCenters(clipsAroundY([0, 45], 's'), 'plate'),
   },
   {
     id: 'conn-90',

@@ -95,7 +95,7 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   }
 
   if (piece.category === 'connectors') {
-    // Clip dots follow catalog directions (XZ plate) so grey 2-way is 90°, not 180°.
+    // Clip dots follow catalog directions (XZ plate) so grey 2-way is 45°, not 180°.
     const clipDirs = piece.ports.filter(
       (p) =>
         p.kind === 'socket' &&
