@@ -25,6 +25,7 @@ import {
   nearestRodEnd,
   nearestRodShaft,
   connectorPosesOnShaft,
+  hubPosesOnShaft,
   sleevePosesOnShaft,
   nextUsableConnectorPose,
   occupancyKeys,
@@ -358,14 +359,48 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       return
     }
 
-    if (isShaftSleeve(catalog)) {
+    if (isConnectorLike(catalog)) {
       const hit = nearestRodShaft(pieces, point)
-      if (hit) {
-        const poses = sleevePosesOnShaft(catalog, hit.piece, hit.point)
+      const leave = SNAP_DISTANCE + 0.55
+      const sameTip =
+        rodAim &&
+        rodAim.targetPortId !== 'shaft' &&
+        nearestRodEnd(
+          freePorts.filter(
+            (p) => p.pieceId === rodAim.targetPieceId && p.portId === rodAim.targetPortId,
+          ),
+          point,
+          leave,
+        )
+      const rodEnd = sameTip ?? nearestRodEnd(freePorts, point)
+      const shaftDist = hit ? hit.point.distanceTo(point) : Number.POSITIVE_INFINITY
+      const endDist = rodEnd
+        ? new THREE.Vector3(...rodEnd.position).distanceTo(point)
+        : Number.POSITIVE_INFINITY
+      if (hit && shaftDist <= endDist) {
+        const poses = hubPosesOnShaft(
+          catalog,
+          hit.piece,
+          hit.point,
+          new THREE.Vector3(...workNormal),
+        )
         if (poses.length) {
-          const pose = poses[0]
+          const sameRod =
+            rodAim &&
+            rodAim.targetPieceId === hit.piece.id &&
+            rodAim.targetPortId === 'shaft'
+          const activeIndex = sameRod ? rodAim.activeIndex : poses.findIndex((p) => p.inPlane)
+          const index = activeIndex >= 0 && activeIndex < poses.length ? activeIndex : 0
+          const pose = poses[index]
           set({
-            rodAim: null,
+            rodAim: {
+              targetPieceId: hit.piece.id,
+              targetPortId: 'shaft',
+              tip: [hit.point.x, hit.point.y, hit.point.z],
+              poses,
+              activeIndex: index,
+              dragging: false,
+            },
             ghost: makeGhost(
               selectedCatalogId,
               pose.position,
@@ -382,20 +417,6 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
           return
         }
       }
-    }
-
-    if (isConnectorLike(catalog)) {
-      const leave = SNAP_DISTANCE + 0.55
-      const sameTip =
-        rodAim &&
-        nearestRodEnd(
-          freePorts.filter(
-            (p) => p.pieceId === rodAim.targetPieceId && p.portId === rodAim.targetPortId,
-          ),
-          point,
-          leave,
-        )
-      const rodEnd = sameTip ?? nearestRodEnd(freePorts, point)
       if (rodEnd) {
         const sameTarget =
           rodAim &&
@@ -425,6 +446,32 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
                 localPortId: pose.localPortId,
                 targetPieceId: rodEnd.pieceId,
                 targetPortId: rodEnd.portId,
+              },
+              pieces,
+              connections,
+            ),
+          })
+          return
+        }
+      }
+    }
+
+    if (isShaftSleeve(catalog)) {
+      const hit = nearestRodShaft(pieces, point)
+      if (hit) {
+        const poses = sleevePosesOnShaft(catalog, hit.piece, hit.point)
+        if (poses.length) {
+          const pose = poses[0]
+          set({
+            rodAim: null,
+            ghost: makeGhost(
+              selectedCatalogId,
+              pose.position,
+              pose.rotation,
+              {
+                localPortId: pose.localPortId,
+                targetPieceId: hit.piece.id,
+                targetPortId: 'shaft',
               },
               pieces,
               connections,

@@ -12,6 +12,7 @@ import {
   isConnectorLike,
   isPreassembledHub,
   isShaftSleeve,
+  HUB_HEIGHT,
   HUB_RADIUS,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
@@ -847,6 +848,55 @@ export function connectorPosesOnShaft(
         inPlane,
       })
     }
+  }
+  const planar = poses.filter((p) => p.inPlane)
+  const chosen = planar.length ? planar : poses
+  chosen.sort((a, b) => Number(b.inPlane) - Number(a.inPlane))
+  return chosen
+}
+
+/** Rod through the hub center hole — stacked like spacers, plate perp to the shaft. */
+export function hubPosesOnShaft(
+  catalog: CatalogPiece,
+  rod: PlacedPiece,
+  shaftPoint: THREE.Vector3,
+  workNormal: THREE.Vector3,
+): ConnectorAimPose[] {
+  if (!isConnectorLike(catalog)) return []
+  const center = catalog.ports.find((p) => isCenterSocket(p.id))
+  if (!center) return []
+  const { origin, dir, half } = rodAxis(rod)
+  const extra = HUB_HEIGHT / 2
+  const span = Math.max(0, half - SHAFT_END_INSET - extra)
+  const t = THREE.MathUtils.clamp(shaftPoint.clone().sub(origin).dot(dir), -span, span)
+  const onShaft = origin.clone().addScaledVector(dir, t)
+  const localDir = new THREE.Vector3(...center.direction).normalize()
+  const work = workNormal.clone().normalize()
+  const seen = new Set<string>()
+  const poses: ConnectorAimPose[] = []
+
+  for (let i = 0; i < 8; i++) {
+    const rotation = new THREE.Quaternion().setFromUnitVectors(localDir, dir)
+    rotation.premultiply(new THREE.Quaternion().setFromAxisAngle(dir, i * KNEX_DETENT))
+    const localPos = new THREE.Vector3(...center.position).applyQuaternion(rotation)
+    const position: [number, number, number] = [
+      onShaft.x - localPos.x,
+      onShaft.y - localPos.y,
+      onShaft.z - localPos.z,
+    ]
+    const rot = canonicalRotation(tupleFromQuat(rotation))
+    const key = geometryKey(position, rot)
+    if (seen.has(key)) continue
+    seen.add(key)
+    const clip = new THREE.Vector3(0, 0, 1).applyQuaternion(quatFromTuple(rot))
+    const inPlane = Math.abs(clip.dot(work)) < 0.25
+    poses.push({
+      position,
+      rotation: rot,
+      localPortId: center.id,
+      fan: [dir.x, dir.y, dir.z],
+      inPlane,
+    })
   }
   const planar = poses.filter((p) => p.inPlane)
   const chosen = planar.length ? planar : poses

@@ -151,7 +151,7 @@ export function BuildMenu() {
             type="button"
             className={`tool-btn${perpSnap ? ' active' : ''}`}
             onClick={togglePerpSnap}
-            title="Snap a connector clip onto a rod shaft at 90°"
+            title="Perp: clip onto a rod shaft. Off: slide the hub hole onto the shaft"
           >
             Perp
           </button>

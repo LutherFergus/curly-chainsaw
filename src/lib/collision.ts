@@ -129,12 +129,15 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
   ]
 }
 
-function clipCapsulesFor(piece: PlacedPiece): Capsule[] {
+type ClipCap = Capsule & { plate: THREE.Vector3 }
+
+function clipCapsulesFor(piece: PlacedPiece): ClipCap[] {
   const catalog = getCatalogPiece(piece.catalogId)
   if (!catalog || catalog.category !== 'connectors') return []
   const origin = new THREE.Vector3(...piece.position)
   const q = quatFromTuple(piece.rotation)
-  const caps: Capsule[] = []
+  const plate = new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize()
+  const caps: ClipCap[] = []
   for (const port of catalog.ports) {
     if (port.kind !== 'socket' || isCenterSocket(port.id)) continue
     const dir = new THREE.Vector3(...port.direction).applyQuaternion(q).normalize()
@@ -142,13 +145,14 @@ function clipCapsulesFor(piece: PlacedPiece): Capsule[] {
       a: origin.clone().addScaledVector(dir, SOCKET_RADIUS),
       b: origin.clone().addScaledVector(dir, SOCKET_RADIUS + CLIP_ARM_LENGTH),
       radius: ROD_HIT,
+      plate,
     })
   }
   return caps
 }
 
-/** Crossing clip arms. Coaxial end-to-end (nose-to-nose on a rod) is not a scissor. */
-function clipsScissor(a: Capsule[], b: Capsule[]): boolean {
+/** Crossing clip arms. Parallel arms stacked along a shared shaft are not a scissor. */
+function clipsScissor(a: ClipCap[], b: ClipCap[]): boolean {
   for (const left of a) {
     const d1 = left.b.clone().sub(left.a)
     if (d1.lengthSq() < 1e-10) continue
@@ -165,6 +169,9 @@ function clipsScissor(a: Capsule[], b: Capsule[]): boolean {
         const between = mid2.sub(mid1)
         const lateral = between.clone().addScaledVector(d1, -between.dot(d1)).length()
         if (lateral < limit * 0.65) continue
+        const plateAlign = Math.abs(left.plate.dot(right.plate))
+        const stacked = Math.abs(between.dot(left.plate))
+        if (plateAlign > 0.82 && stacked >= limit - 0.01) continue
       }
       return true
     }

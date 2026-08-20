@@ -169,15 +169,19 @@ function SnapHints() {
 
   const freePorts = useMemo(() => {
     if (tool !== 'place' || !selectedCatalogId) return []
-    if ((perpSnap && placingConnector) || placingSleeve) {
+    if (placingConnector || placingSleeve) {
       const cursor = rodAim?.targetPortId === 'shaft'
         ? new THREE.Vector3(...rodAim.tip)
         : ghost
           ? new THREE.Vector3(...ghost.position)
           : new THREE.Vector3(0, 0.35, 0)
-      return pieces
+      const shafts = pieces
         .map((piece) => shaftHintPort(piece, cursor))
         .filter((p): p is NonNullable<typeof p> => Boolean(p))
+      if (perpSnap || placingSleeve) return shafts
+      const occupied = occupancyKeys(pieces, connections)
+      const world = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+      return [...world, ...shafts]
     }
     const occupied = occupancyKeys(pieces, connections)
     return allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
@@ -194,7 +198,7 @@ function SnapHints() {
   ])
 
   const hints = freePorts.filter((p) => {
-    if (p.kind === 'shaft') return (perpSnap && placingConnector) || placingSleeve
+    if (p.kind === 'shaft') return placingConnector || placingSleeve
     if (placingRod) return p.kind === 'socket'
     if (placingSlotted) return p.kind === 'interlock' || p.kind === 'rod-end'
     if (p.kind === 'interlock') return false
