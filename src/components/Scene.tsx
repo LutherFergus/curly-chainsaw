@@ -178,7 +178,16 @@ function SnapHints() {
       const shafts = pieces
         .map((piece) => shaftHintPort(piece, cursor))
         .filter((p): p is NonNullable<typeof p> => Boolean(p))
-      if (perpSnap || placingSleeve) return shafts
+      if (perpSnap || placingSleeve) {
+        if (catalog?.category === 'gears') {
+          const occupied = occupancyKeys(pieces, connections)
+          const meshes = allWorldPorts(pieces, occupied).filter(
+            (p) => p.kind === 'gear-mesh' && !p.occupied,
+          )
+          return [...shafts, ...meshes]
+        }
+        return shafts
+      }
       const occupied = occupancyKeys(pieces, connections)
       const world = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
       return [...world, ...shafts]
@@ -193,12 +202,14 @@ function SnapHints() {
     perpSnap,
     placingConnector,
     placingSleeve,
+    catalog,
     rodAim,
     ghost,
   ])
 
   const hints = freePorts.filter((p) => {
     if (p.kind === 'shaft') return placingConnector || placingSleeve
+    if (p.kind === 'gear-mesh') return catalog?.category === 'gears'
     if (placingRod) return p.kind === 'socket'
     if (placingSlotted) return p.kind === 'interlock' || p.kind === 'rod-end'
     if (p.kind === 'interlock') return false
@@ -216,29 +227,34 @@ function SnapHints() {
         const center = port.kind === 'socket' && isCenterSocket(port.portId)
         const slot = port.kind === 'interlock'
         const shaft = port.kind === 'shaft'
+        const mesh = port.kind === 'gear-mesh'
         const color = hovered
           ? '#69db7c'
           : slot
             ? '#e64980'
             : shaft
               ? '#ff922b'
-              : center
-                ? '#c0eb75'
-                : port.kind === 'socket'
-                  ? '#ffd43b'
-                  : '#66d9e8'
+              : mesh
+                ? '#9775fa'
+                : center
+                  ? '#c0eb75'
+                  : port.kind === 'socket'
+                    ? '#ffd43b'
+                    : '#66d9e8'
         const emissive = hovered
           ? '#51cf66'
           : slot
             ? '#d6336c'
             : shaft
               ? '#f76707'
-              : center
-                ? '#82c91e'
-                : port.kind === 'socket'
-                  ? '#fcc419'
-                  : '#22b8cf'
-        const radius = hovered ? 0.13 : slot ? 0.12 : shaft ? 0.11 : center ? 0.08 : 0.1
+              : mesh
+                ? '#845ef7'
+                : center
+                  ? '#82c91e'
+                  : port.kind === 'socket'
+                    ? '#fcc419'
+                    : '#22b8cf'
+        const radius = hovered ? 0.13 : slot ? 0.12 : shaft ? 0.11 : mesh ? 0.1 : center ? 0.08 : 0.1
         const pos = portOrbPosition(port)
         return (
           <mesh key={key} position={pos} renderOrder={20}>

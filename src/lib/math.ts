@@ -12,6 +12,8 @@ import {
   isConnectorLike,
   isPreassembledHub,
   isShaftSleeve,
+  gearMeshCenterDistance,
+  GEAR_MESH_TOLERANCE,
   HUB_HEIGHT,
   HUB_RADIUS,
   ROD_RADIUS_SCENE,
@@ -937,6 +939,103 @@ export function sleevePosesOnShaft(
   ]
 }
 
+/**
+ * Seat a gear so its teeth mesh with a placed gear (parallel axes, pitch spacing).
+ * Cursor picks which side of the target the new gear sits on.
+ */
+export function gearMeshPoseOnGear(
+  catalog: CatalogPiece,
+  target: PlacedPiece,
+  cursor: THREE.Vector3,
+): ConnectorAimPose | null {
+  if (catalog.category !== 'gears') return null
+  const targetCat = getCatalogPiece(target.catalogId)
+  if (!targetCat || targetCat.category !== 'gears') return null
+  if (!catalog.ports.some((p) => p.kind === 'gear-mesh')) return null
+
+  const dist = gearMeshCenterDistance(catalog, targetCat)
+  const qTarget = quatFromTuple(target.rotation)
+  const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(qTarget).normalize()
+  const origin = new THREE.Vector3(...target.position)
+
+  const planar = cursor.clone().sub(origin)
+  planar.sub(axis.clone().multiplyScalar(planar.dot(axis)))
+  if (planar.lengthSq() < 1e-5) {
+    const helper =
+      Math.abs(axis.dot(new THREE.Vector3(0, 1, 0))) < 0.85
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(1, 0, 0)
+    planar.copy(new THREE.Vector3().crossVectors(axis, helper).normalize())
+  } else {
+    planar.normalize()
+  }
+
+  const position = origin.clone().addScaledVector(planar, dist)
+
+  const rotAlign = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis)
+  const localLine = planar.clone().applyQuaternion(qTarget.clone().invert())
+  const centerAngle = Math.atan2(localLine.y, localLine.x)
+  const teeth = Math.max(6, catalog.teeth ?? 14)
+  const twist = centerAngle + Math.PI + Math.PI / teeth
+  const qTwist = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), twist)
+  const rotation = canonicalRotation(tupleFromQuat(rotAlign.multiply(qTwist)))
+
+  return {
+    position: [position.x, position.y, position.z],
+    rotation,
+    localPortId: 'mesh',
+    fan: [planar.x, planar.y, planar.z],
+    inPlane: true,
+  }
+}
+
+export function nearestGearMesh(
+  catalog: CatalogPiece,
+  pieces: PlacedPiece[],
+  cursor: THREE.Vector3,
+  maxDistance = SNAP_DISTANCE + 0.35,
+): { piece: PlacedPiece; pose: ConnectorAimPose } | null {
+  if (catalog.category !== 'gears') return null
+  let best: { piece: PlacedPiece; pose: ConnectorAimPose } | null = null
+  let bestDist = maxDistance
+  for (const piece of pieces) {
+    const other = getCatalogPiece(piece.catalogId)
+    if (!other || other.category !== 'gears') continue
+    const pose = gearMeshPoseOnGear(catalog, piece, cursor)
+    if (!pose) continue
+    const ideal = gearMeshCenterDistance(catalog, other)
+    const centerDist = cursor.distanceTo(new THREE.Vector3(...piece.position))
+    const rimDist = Math.abs(centerDist - ideal)
+    if (rimDist < bestDist) {
+      bestDist = rimDist
+      best = { piece, pose }
+    }
+  }
+  return best
+}
+
+/** Parallel spur gears with teeth interleaved — a join, not a hit. */
+export function gearsMeshing(a: PlacedPiece, b: PlacedPiece): boolean {
+  const ca = getCatalogPiece(a.catalogId)
+  const cb = getCatalogPiece(b.catalogId)
+  if (ca?.category !== 'gears' || cb?.category !== 'gears') return false
+  const qa = quatFromTuple(a.rotation)
+  const qb = quatFromTuple(b.rotation)
+  const axisA = new THREE.Vector3(0, 0, 1).applyQuaternion(qa).normalize()
+  const axisB = new THREE.Vector3(0, 0, 1).applyQuaternion(qb).normalize()
+  if (Math.abs(axisA.dot(axisB)) < 0.9) return false
+  const pa = new THREE.Vector3(...a.position)
+  const pb = new THREE.Vector3(...b.position)
+  const delta = pb.clone().sub(pa)
+  const axial = Math.abs(delta.dot(axisA))
+  const halfA = (ca.thickness ?? HUB_HEIGHT) / 2
+  const halfB = (cb.thickness ?? HUB_HEIGHT) / 2
+  if (axial > halfA + halfB + 0.04) return false
+  const radial = delta.clone().addScaledVector(axisA, -delta.dot(axisA)).length()
+  const ideal = gearMeshCenterDistance(ca, cb)
+  return Math.abs(radial - ideal) <= GEAR_MESH_TOLERANCE
+}
+
 export function nearestRodShaft(
   pieces: PlacedPiece[],
   cursor: THREE.Vector3,
@@ -1302,6 +1401,7 @@ function distPointToAxis(
 
 function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
   if (a.kind === 'interlock' && b.kind === 'interlock') return true
+  if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') return true
   if (a.kind === 'rod-end' && b.kind === 'socket') return !isThroughHoleSocket(b.portId)
   if (a.kind === 'socket' && b.kind === 'rod-end') return !isThroughHoleSocket(a.portId)
   if (a.kind === 'shaft' && b.kind === 'socket') return true
@@ -1312,6 +1412,8 @@ function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
 function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
   const dot = new THREE.Vector3(...a.direction).dot(new THREE.Vector3(...b.direction))
   if (a.kind === 'interlock' || b.kind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
+  // Gear mesh ports are radial placeholders; axis alignment is checked via piece poses.
+  if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') return true
   const shaftClip =
     (a.kind === 'shaft' && isClipSocketPort(b)) || (b.kind === 'shaft' && isClipSocketPort(a))
   if (shaftClip) return Math.abs(dot) < POSE_DIR_PERP
@@ -1349,6 +1451,7 @@ export function mergeGeometricConnections(
 ): Connection[] {
   const occupied = occupiedPortKeys(connections)
   const free = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+  const byId = new Map(pieces.map((p) => [p.id, p]))
   const pairs: { a: WorldPort; b: WorldPort; dist: number }[] = []
   for (let i = 0; i < free.length; i++) {
     for (let j = i + 1; j < free.length; j++) {
@@ -1356,6 +1459,13 @@ export function mergeGeometricConnections(
       const b = free[j]
       if (a.pieceId === b.pieceId) continue
       if (!worldPortsCompatible(a, b)) continue
+      if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') {
+        const pa = byId.get(a.pieceId)
+        const pb = byId.get(b.pieceId)
+        if (!pa || !pb || !gearsMeshing(pa, pb)) continue
+        pairs.push({ a, b, dist: 0 })
+        continue
+      }
       const dist = pairDistance(a, b)
       if (dist > COUPLE_DIST) continue
       if (!worldDirectionsMatch(a, b)) continue
@@ -1368,9 +1478,11 @@ export function mergeGeometricConnections(
   for (const { a, b } of pairs) {
     const ka = portKey(a.pieceId, a.portId)
     const kb = portKey(b.pieceId, b.portId)
-    if ((a.portId !== 'shaft' && used.has(ka)) || (b.portId !== 'shaft' && used.has(kb))) continue
-    if (a.portId !== 'shaft') used.add(ka)
-    if (b.portId !== 'shaft') used.add(kb)
+    const multiA = a.portId === 'shaft' || a.portId === 'mesh'
+    const multiB = b.portId === 'shaft' || b.portId === 'mesh'
+    if ((!multiA && used.has(ka)) || (!multiB && used.has(kb))) continue
+    if (!multiA) used.add(ka)
+    if (!multiB) used.add(kb)
     extra.push({
       aPieceId: a.pieceId,
       aPortId: a.portId,
@@ -1388,6 +1500,7 @@ export function occupancyKeys(pieces: PlacedPiece[], connections: Connection[]):
 
 function portsCompatible(local: PortDef, target: WorldPort): boolean {
   if (local.kind === 'interlock' && target.kind === 'interlock') return true
+  if (local.kind === 'gear-mesh' && target.kind === 'gear-mesh') return true
   if (local.kind === 'rod-end' && target.kind === 'socket') return !isThroughHoleSocket(target.portId)
   if (local.kind === 'socket' && target.kind === 'rod-end') return !isThroughHoleSocket(local.id)
   if (local.kind === 'shaft' && target.kind === 'socket') return isThroughHoleSocket(target.portId)

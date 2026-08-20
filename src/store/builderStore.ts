@@ -24,6 +24,7 @@ import {
   nearestInterlockOnPointer,
   nearestRodEnd,
   nearestRodShaft,
+  nearestGearMesh,
   connectorPosesOnShaft,
   hubPosesOnShaft,
   sleevePosesOnShaft,
@@ -472,6 +473,27 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
                 localPortId: pose.localPortId,
                 targetPieceId: hit.piece.id,
                 targetPortId: 'shaft',
+              },
+              pieces,
+              connections,
+            ),
+          })
+          return
+        }
+      }
+      if (catalog.category === 'gears') {
+        const mesh = nearestGearMesh(catalog, pieces, point)
+        if (mesh) {
+          set({
+            rodAim: null,
+            ghost: makeGhost(
+              selectedCatalogId,
+              mesh.pose.position,
+              mesh.pose.rotation,
+              {
+                localPortId: mesh.pose.localPortId,
+                targetPieceId: mesh.piece.id,
+                targetPortId: 'mesh',
               },
               pieces,
               connections,

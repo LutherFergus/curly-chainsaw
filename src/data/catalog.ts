@@ -56,6 +56,27 @@ export const GEAR_LARGE_OD_MM = 130
 export const GEAR_SMALL_THICK_MM = BLUE_SPACER_MM * 4
 export const GEAR_MEDIUM_THICK_MM = BLUE_SPACER_MM * 4
 export const GEAR_LARGE_THICK_MM = BLUE_SPACER_MM * 3
+
+/** Tooth depth used by the spur mesh and by mesh-center spacing. */
+export function gearToothDepth(radius: number, teeth: number): number {
+  const n = Math.max(6, Math.floor(teeth))
+  return Math.max(
+    radius * 0.055,
+    Math.min(radius * 0.28, ((2 * Math.PI * radius) / n) * 0.72),
+  )
+}
+
+/** Ideal center distance for two spur gears meshing teeth-to-teeth. */
+export function gearMeshCenterDistance(a: CatalogPiece, b: CatalogPiece): number {
+  const rA = a.radius ?? 0
+  const rB = b.radius ?? 0
+  const dA = gearToothDepth(rA, a.teeth ?? 14)
+  const dB = gearToothDepth(rB, b.teeth ?? 14)
+  return rA + rB - (dA + dB) * 0.5
+}
+
+/** How far from ideal mesh distance still counts as joined (scene units). */
+export const GEAR_MESH_TOLERANCE = 0.14
 /**
  * Classic K’NEX wheel / hub / tire family (visual CAD envelopes).
  * Axle: Classic 6.35 mm rod with free-spin clearance in the hub bore.
@@ -223,6 +244,16 @@ function axleSocket(): PortDef {
     kind: 'socket',
     position: [0, 0, 0],
     direction: [0, 0, 1],
+  }
+}
+
+/** Rim mate — another gear’s teeth can join here (multi-partner). */
+function gearMeshPort(): PortDef {
+  return {
+    id: 'mesh',
+    kind: 'gear-mesh',
+    position: [0, 0, 0],
+    direction: [1, 0, 0],
   }
 }
 
@@ -774,7 +805,7 @@ const gears: CatalogPiece[] = [
     teeth: 14,
     radius: mm(GEAR_SMALL_OD_MM) / 2,
     thickness: mm(GEAR_SMALL_THICK_MM),
-    ports: [axleSocket()],
+    ports: [axleSocket(), gearMeshPort()],
   },
   {
     id: 'gear-medium',
@@ -786,7 +817,7 @@ const gears: CatalogPiece[] = [
     teeth: 34,
     radius: mm(GEAR_MEDIUM_OD_MM) / 2,
     thickness: mm(GEAR_MEDIUM_THICK_MM),
-    ports: [axleSocket()],
+    ports: [axleSocket(), gearMeshPort()],
   },
   {
     id: 'gear-crown',
@@ -798,7 +829,7 @@ const gears: CatalogPiece[] = [
     teeth: 34,
     radius: mm(GEAR_MEDIUM_OD_MM) / 2,
     thickness: mm(GEAR_MEDIUM_THICK_MM),
-    ports: [axleSocket()],
+    ports: [axleSocket(), gearMeshPort()],
   },
   {
     id: 'gear-large',
@@ -810,7 +841,7 @@ const gears: CatalogPiece[] = [
     teeth: 82,
     radius: mm(GEAR_LARGE_OD_MM) / 2,
     thickness: mm(GEAR_LARGE_THICK_MM),
-    ports: [axleSocket()],
+    ports: [axleSocket(), gearMeshPort()],
   },
 ]
 

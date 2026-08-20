@@ -11,7 +11,13 @@ import {
   isConnectorLike,
   isShaftSleeve,
 } from '../data/catalog'
-import { isCenterSocket, mergeGeometricConnections, quatFromTuple, rodAxis } from './math'
+import {
+  gearsMeshing,
+  isCenterSocket,
+  mergeGeometricConnections,
+  quatFromTuple,
+  rodAxis,
+} from './math'
 
 const ROD_HIT = ROD_RADIUS_SCENE * 1.08
 const GHOST_ID = 'ghost'
@@ -243,6 +249,9 @@ function shaftThroughDisk(rod: PlacedPiece, disk: Disk): boolean {
 function pairOverlaps(a: PlacedPiece, b: PlacedPiece): boolean {
   const ca = getCatalogPiece(a.catalogId)
   const cb = getCatalogPiece(b.catalogId)
+  if (ca?.category === 'gears' && cb?.category === 'gears') {
+    if (gearsMeshing(a, b)) return false
+  }
   if (ca?.category === 'connectors' && cb?.category === 'connectors') {
     if (clipsScissor(clipCapsulesFor(a), clipCapsulesFor(b))) return true
     const ha = pieceDiskOf(a)
