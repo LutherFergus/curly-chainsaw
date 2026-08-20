@@ -26,6 +26,7 @@ import {
   SPACER_OUTER_RADIUS,
   HUB_MEDIUM_OD_MM,
   HUB_SMALL_OD_MM,
+  MOTOR_WORM_PITCH_R_MM,
   WHEEL_THICK_MM,
   mm,
 } from '../../data/catalog'
@@ -868,6 +869,101 @@ function ChainMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   )
 }
 
+function MotorMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
+  const box = catalog.boxSize ?? [mm(42), mm(54), catalog.thickness ?? mm(78)]
+  const [w, h, d] = box
+  const style = catalog.variant ?? 'motor-enclosed'
+  const accent = catalog.accent ?? mat.color
+  /** Drive bore — interference/torque fit, tighter than free-spin wheel bores. */
+  const driveR = ROD_RADIUS_SCENE * 0.94
+  const hasDrive = catalog.ports.some((p) => p.id === 'drive' || p.id === 'axle')
+  const worm = catalog.ports.find((p) => p.id === 'worm')
+  const lugs = catalog.ports.filter((p) => p.kind === 'connector-lug')
+  const brickAxles = catalog.ports.filter((p) => p.kind === 'rod-end')
+
+  return (
+    <group>
+      {/* Housing */}
+      <mesh>
+        <boxGeometry args={[w, h, d]} />
+        <Plastic mat={mat} />
+      </mesh>
+      {/* Battery door cue */}
+      {(style === 'motor-enclosed' || style === 'motor-2speed') && (
+        <mesh position={[0, -h * 0.38, 0]}>
+          <boxGeometry args={[w * 0.72, h * 0.12, d * 0.55]} />
+          <Plastic mat={mat} color={accent} />
+        </mesh>
+      )}
+      {/* F/O/R switch */}
+      {style !== 'motor-spring' && style !== 'motor-12v' && (
+        <mesh position={[w * 0.42, h * 0.28, 0]}>
+          <boxGeometry args={[mm(4), mm(8), mm(14)]} />
+          <Plastic mat={mat} color="#212529" />
+        </mesh>
+      )}
+      {/* Driven output hub — torque interface, not a free bearing */}
+      {hasDrive && (
+        <>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[driveR * 1.55, driveR * 1.55, d * 1.02, 16]} />
+            <Plastic mat={mat} color={accent} />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[driveR, driveR, d * 1.08, 12]} />
+            <Plastic mat={mat} color="#1a1b1e" />
+          </mesh>
+        </>
+      )}
+      {/* Structural connector lugs on ±Z faces */}
+      {lugs.map((lug) => (
+        <mesh key={lug.id} position={lug.position} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[HUB_RADIUS * 0.95, HUB_RADIUS * 0.95, mm(4.5), 14]} />
+          <Plastic mat={mat} color={accent} />
+        </mesh>
+      ))}
+      {/* 12 V external worm */}
+      {worm && (
+        <group position={worm.position}>
+          {Array.from({ length: 7 }).map((_, i) => (
+            <mesh
+              key={i}
+              position={[0, 0, (i - 3) * mm(2.2)]}
+              rotation={[Math.PI / 2, 0, 0]}
+            >
+              <cylinderGeometry
+                args={[mm(MOTOR_WORM_PITCH_R_MM), mm(MOTOR_WORM_PITCH_R_MM) * 0.85, mm(2), 12]}
+              />
+              <Plastic mat={mat} color={accent} />
+            </mesh>
+          ))}
+        </group>
+      )}
+      {/* Brick projecting axles */}
+      {brickAxles.map((axle) => (
+        <mesh key={axle.id} position={axle.position} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[ROD_RADIUS_SCENE * 0.98, ROD_RADIUS_SCENE * 0.98, mm(14), 12]} />
+          <Plastic mat={mat} color={accent} />
+        </mesh>
+      ))}
+      {/* Robotics rod loop */}
+      {style === 'motor-robotics' && (
+        <mesh position={[0, h * 0.55, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <torusGeometry args={[mm(8), mm(2.2), 8, 16]} />
+          <Plastic mat={mat} color={accent} />
+        </mesh>
+      )}
+      {/* Spring winding cue */}
+      {style === 'motor-spring' && (
+        <mesh position={[0, h * 0.15, d * 0.35]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[mm(7), mm(1.6), 8, 14]} />
+          <Plastic mat={mat} color={accent} />
+        </mesh>
+      )}
+    </group>
+  )
+}
+
 export function PieceMesh({
   catalog,
   opacity = 1,
@@ -926,6 +1022,7 @@ export function PieceMesh({
   if (catalog.category === 'spacers') return <SleeveMesh catalog={catalog} mat={mat} />
   if (catalog.category === 'wheels') return <WheelMesh catalog={catalog} mat={mat} />
   if (catalog.category === 'gears') return <GearMesh catalog={catalog} mat={mat} />
+  if (catalog.category === 'motors') return <MotorMesh catalog={catalog} mat={mat} />
   if (catalog.category === 'panels') return <PanelMesh catalog={catalog} mat={mat} />
   if (catalog.category === 'chain') return <ChainMesh catalog={catalog} mat={mat} />
   if (catalog.category === 'clips') return <ConnectorMesh catalog={catalog} mat={mat} />

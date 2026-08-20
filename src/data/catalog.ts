@@ -97,6 +97,29 @@ export const WHEEL_25_OD_MM = WHEEL_THIN_OD_MM
 /** @deprecated Use HUB_MEDIUM_OD_MM */
 export const WHEEL_50_OD_MM = HUB_MEDIUM_OD_MM
 
+/**
+ * Classic motor housing envelopes (visual CAD — not mold tooling).
+ * Drive axis is local +Z; side connector lugs sit on the ±Z faces.
+ */
+export const MOTOR_ENCLOSED_LEN_MM = 78
+export const MOTOR_ENCLOSED_WID_MM = 42
+export const MOTOR_ENCLOSED_HGT_MM = 54
+export const MOTOR_2SPEED_LEN_MM = 95
+export const MOTOR_2SPEED_WID_MM = 52
+export const MOTOR_2SPEED_HGT_MM = 62
+export const MOTOR_12V_LEN_MM = 70
+export const MOTOR_12V_WID_MM = 48
+export const MOTOR_12V_HGT_MM = 40
+export const MOTOR_SPRING_LEN_MM = 55
+export const MOTOR_SPRING_WID_MM = 40
+export const MOTOR_SPRING_HGT_MM = 40
+/** 12 V DC barrel plug (adapter side), for reference only. */
+export const MOTOR_12V_BARREL_OD_MM = 5.5
+export const MOTOR_12V_BARREL_ID_MM = 2.1
+export const MOTOR_12V_BARREL_MIN_LEN_MM = 10
+/** Worm pitch radius used for gear mesh spacing (approx). */
+export const MOTOR_WORM_PITCH_R_MM = 8
+
 /** Panels: small body 64×64 mm (shop); large ~5.5 in / 140 mm (patent). */
 export const PANEL_THICK_MM = 2.5
 export const PANEL_SIDE_MM = {
@@ -247,12 +270,57 @@ function axleSocket(): PortDef {
   }
 }
 
+/** Torque-drive through-hole — same socket kind, tagged id for driven vs passive. */
+function drivenRodThrough(z = 0): PortDef {
+  return {
+    id: 'drive',
+    kind: 'socket',
+    position: [0, 0, z],
+    direction: [0, 0, 1],
+  }
+}
+
+/** End-insert driven output (tethered motor). */
+function drivenRodEnd(z: number): PortDef {
+  return {
+    id: 'drive-end',
+    kind: 'socket',
+    position: [0, 0, z],
+    direction: [0, 0, 1],
+  }
+}
+
+/** Passive structural rod hole (no torque). */
+function passiveRodThrough(id: string, position: [number, number, number], direction: [number, number, number]): PortDef {
+  return { id, kind: 'socket', position, direction }
+}
+
+/** Housing lug that seats a Classic connector (typically white 8-way). */
+function connectorLug(id: string, z: number, sign: 1 | -1): PortDef {
+  return {
+    id,
+    kind: 'connector-lug',
+    position: [0, 0, z],
+    direction: [0, 0, sign],
+  }
+}
+
 /** Rim mate — another gear’s teeth can join here (multi-partner). */
 function gearMeshPort(): PortDef {
   return {
     id: 'mesh',
     kind: 'gear-mesh',
     position: [0, 0, 0],
+    direction: [1, 0, 0],
+  }
+}
+
+/** External worm on 12 V motor — meshes with a Classic gear. */
+function wormMeshPort(x: number): PortDef {
+  return {
+    id: 'worm',
+    kind: 'gear-mesh',
+    position: [x, 0, 0],
     direction: [1, 0, 0],
   }
 }
@@ -845,6 +913,226 @@ const gears: CatalogPiece[] = [
   },
 ]
 
+function motorBox(
+  lenMm: number,
+  widMm: number,
+  hgtMm: number,
+): { thickness: number; radius: number; boxSize: [number, number, number] } {
+  const thickness = mm(lenMm)
+  const boxSize: [number, number, number] = [mm(widMm), mm(hgtMm), thickness]
+  const radius = Math.hypot(mm(widMm), mm(hgtMm)) / 2
+  return { thickness, radius, boxSize }
+}
+
+function enclosedMotorPorts(lenMm: number): PortDef[] {
+  const half = mm(lenMm) / 2
+  const lugZ = half * 0.92
+  return [
+    drivenRodThrough(0),
+    connectorLug('lug-a', lugZ, 1),
+    connectorLug('lug-b', -lugZ, -1),
+  ]
+}
+
+const motors: CatalogPiece[] = [
+  {
+    id: 'motor-black-22',
+    name: 'Battery Motor 22 RPM',
+    category: 'motors',
+    description:
+      'Enclosed Classic 3 V motor (2×AA). Forward/Off/Reverse. Black ≈22 RPM. Driven rod through center; white 8-way on side lugs.',
+    color: '#212529',
+    accent: '#495057',
+    variant: 'motor-enclosed',
+    motorVolts: 3,
+    motorRpm: 22,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM, MOTOR_ENCLOSED_WID_MM, MOTOR_ENCLOSED_HGT_MM),
+    ports: enclosedMotorPorts(MOTOR_ENCLOSED_LEN_MM),
+  },
+  {
+    id: 'motor-blue-34',
+    name: 'Battery Motor 34 RPM',
+    category: 'motors',
+    description:
+      'Enclosed Classic 3 V motor (2×AA). Forward/Off/Reverse. Blue ≈34 RPM. Driven rod through center; white 8-way on side lugs.',
+    color: '#1c7ed6',
+    accent: '#4dabf7',
+    variant: 'motor-enclosed',
+    motorVolts: 3,
+    motorRpm: 34,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM, MOTOR_ENCLOSED_WID_MM, MOTOR_ENCLOSED_HGT_MM),
+    ports: enclosedMotorPorts(MOTOR_ENCLOSED_LEN_MM),
+  },
+  {
+    id: 'motor-green-45',
+    name: 'Battery Motor 45 RPM',
+    category: 'motors',
+    description:
+      'Enclosed Classic 3 V motor (2×AA). Forward/Off/Reverse. Green ≈45 RPM. Driven rod through center; white 8-way on side lugs.',
+    color: '#2f9e44',
+    accent: '#51cf66',
+    variant: 'motor-enclosed',
+    motorVolts: 3,
+    motorRpm: 45,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM, MOTOR_ENCLOSED_WID_MM, MOTOR_ENCLOSED_HGT_MM),
+    ports: enclosedMotorPorts(MOTOR_ENCLOSED_LEN_MM),
+  },
+  {
+    id: 'motor-red-190',
+    name: 'Battery Motor 190 RPM',
+    category: 'motors',
+    description:
+      'Enclosed Classic 3 V motor (2×AA). Forward/Off/Reverse. Red ≈190 RPM. Driven rod through center; white 8-way on side lugs.',
+    color: '#e03131',
+    accent: '#ff6b6b',
+    variant: 'motor-enclosed',
+    motorVolts: 3,
+    motorRpm: 190,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM, MOTOR_ENCLOSED_WID_MM, MOTOR_ENCLOSED_HGT_MM),
+    ports: enclosedMotorPorts(MOTOR_ENCLOSED_LEN_MM),
+  },
+  {
+    id: 'motor-silver-190',
+    name: 'Battery Motor Silver',
+    category: 'motors',
+    description:
+      'Enclosed Classic 3 V motor (2×AA). Forward/Off/Reverse. Silver ≈190 RPM. Driven rod through center; white 8-way on side lugs.',
+    color: '#adb5bd',
+    accent: '#868e96',
+    variant: 'motor-enclosed',
+    motorVolts: 3,
+    motorRpm: 190,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM, MOTOR_ENCLOSED_WID_MM, MOTOR_ENCLOSED_HGT_MM),
+    ports: enclosedMotorPorts(MOTOR_ENCLOSED_LEN_MM),
+  },
+  {
+    id: 'motor-remote-45',
+    name: 'Separate Battery Motor',
+    category: 'motors',
+    description:
+      '3 V motor with separate battery box (~45 RPM). Forward/Off/Reverse. Same driven-rod + side-lug interfaces as the enclosed motor.',
+    color: '#868e96',
+    accent: '#343a40',
+    variant: 'motor-enclosed',
+    motorVolts: 3,
+    motorRpm: 45,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM * 0.85, MOTOR_ENCLOSED_WID_MM, MOTOR_ENCLOSED_HGT_MM * 0.75),
+    ports: enclosedMotorPorts(MOTOR_ENCLOSED_LEN_MM * 0.85),
+  },
+  {
+    id: 'motor-tethered',
+    name: 'Tethered Battery Motor',
+    category: 'motors',
+    description:
+      '3 V tethered motor (2×AA pack). Forward/Off/Reverse. Rod through center or into end output; structural rods can sandwich the housing.',
+    color: '#74c0fc',
+    accent: '#1864ab',
+    variant: 'motor-tethered',
+    motorVolts: 3,
+    ...motorBox(MOTOR_ENCLOSED_LEN_MM * 0.9, MOTOR_ENCLOSED_WID_MM * 0.95, MOTOR_ENCLOSED_HGT_MM * 0.7),
+    ports: [
+      drivenRodThrough(0),
+      drivenRodEnd(mm(MOTOR_ENCLOSED_LEN_MM * 0.9) / 2),
+      passiveRodThrough('mount-a', [0, mm(MOTOR_ENCLOSED_HGT_MM * 0.28), 0], [0, 1, 0]),
+      passiveRodThrough('mount-b', [0, -mm(MOTOR_ENCLOSED_HGT_MM * 0.28), 0], [0, -1, 0]),
+    ],
+  },
+  {
+    id: 'motor-2speed',
+    name: '2-Speed Battery Motor',
+    category: 'motors',
+    description:
+      '6 V motor (4×AA). Forward/Off/Reverse plus Slow/Fast. Side mounting lugs; larger than the standard 3 V enclosed motors. Exact RPM not published.',
+    color: '#fab005',
+    accent: '#e67700',
+    variant: 'motor-2speed',
+    motorVolts: 6,
+    ...motorBox(MOTOR_2SPEED_LEN_MM, MOTOR_2SPEED_WID_MM, MOTOR_2SPEED_HGT_MM),
+    ports: enclosedMotorPorts(MOTOR_2SPEED_LEN_MM),
+  },
+  {
+    id: 'motor-12v',
+    name: '12 V Mains Motor',
+    category: 'motors',
+    description:
+      '12 V external-supply motor (~66 RPM). External worm drives a Classic gear (e.g. white 90983 + tan clip). Two passive underside rod mounts — not driven. Barrel plug ~5.5/2.1 mm.',
+    color: '#495057',
+    accent: '#ced4da',
+    variant: 'motor-12v',
+    motorVolts: 12,
+    motorRpm: 66,
+    teeth: 8,
+    ...motorBox(MOTOR_12V_LEN_MM, MOTOR_12V_WID_MM, MOTOR_12V_HGT_MM),
+    ports: [
+      wormMeshPort(mm(MOTOR_12V_WID_MM) / 2 + mm(MOTOR_WORM_PITCH_R_MM) * 0.35),
+      passiveRodThrough(
+        'mount-a',
+        [-mm(12), -mm(MOTOR_12V_HGT_MM) / 2, -mm(12)],
+        [0, -1, 0],
+      ),
+      passiveRodThrough(
+        'mount-b',
+        [mm(12), -mm(MOTOR_12V_HGT_MM) / 2, mm(12)],
+        [0, -1, 0],
+      ),
+    ],
+  },
+  {
+    id: 'motor-spring',
+    name: 'Spring Motor',
+    category: 'motors',
+    description:
+      'Mechanical spring motor. Wind with a Classic rod through the winding hole; light-load / higher-speed models.',
+    color: '#e8590c',
+    accent: '#ff922b',
+    variant: 'motor-spring',
+    ...motorBox(MOTOR_SPRING_LEN_MM, MOTOR_SPRING_WID_MM, MOTOR_SPRING_HGT_MM),
+    ports: [drivenRodThrough(0)],
+  },
+  {
+    id: 'motor-robotics',
+    name: 'Robotics Motor',
+    category: 'motors',
+    description:
+      'Education robotics motor with rotation sensor and PTO drive. Rod-loop structural mount — separate standard from battery motors.',
+    color: '#5c7cfa',
+    accent: '#91a7ff',
+    variant: 'motor-robotics',
+    motorVolts: 0,
+    ...motorBox(65, 45, 48),
+    ports: [
+      drivenRodThrough(0),
+      passiveRodThrough('rod-loop', [0, mm(28), 0], [0, 1, 0]),
+    ],
+  },
+  {
+    id: 'motor-brick',
+    name: 'Brick Battery Motor',
+    category: 'motors',
+    description:
+      'Brick-system battery motor (2×AA). Projecting axles accept Classic 37 mm racing wheels (91174) directly.',
+    color: '#862e9c',
+    accent: '#cc5de8',
+    variant: 'motor-brick',
+    motorVolts: 3,
+    ...motorBox(60, 40, 35),
+    ports: [
+      {
+        id: 'axle-a',
+        kind: 'rod-end',
+        position: [0, 0, mm(22)],
+        direction: [0, 0, 1],
+      },
+      {
+        id: 'axle-b',
+        kind: 'rod-end',
+        position: [0, 0, -mm(22)],
+        direction: [0, 0, -1],
+      },
+    ],
+  },
+]
+
 const FLEXI_SPECS = [
   {
     id: 'flexi-white',
@@ -971,6 +1259,7 @@ export const CATALOG: CatalogPiece[] = [
   ...spacers,
   ...wheels,
   ...gears,
+  ...motors,
   ...panels,
   ...chain,
 ]
@@ -982,6 +1271,7 @@ export const CATEGORY_LABELS: Record<CatalogPiece['category'], string> = {
   spacers: 'Spacers',
   wheels: 'Wheels',
   gears: 'Gears',
+  motors: 'Motors',
   panels: 'Panels',
   chain: 'Chain',
 }
@@ -1015,7 +1305,17 @@ export function isConnectorLike(piece: CatalogPiece): boolean {
   return piece.category === 'connectors' || piece.category === 'clips'
 }
 
-/** Rings that sit coaxially on a rod shaft (spacers, wheels, gears). */
+/** Rings that sit coaxially on a rod shaft (spacers, wheels, gears, motors with drive bore). */
 export function isShaftSleeve(piece: CatalogPiece): boolean {
-  return piece.category === 'spacers' || piece.category === 'wheels' || piece.category === 'gears'
+  if (piece.category === 'spacers' || piece.category === 'wheels' || piece.category === 'gears') {
+    return true
+  }
+  if (piece.category !== 'motors') return false
+  // Driven through-hole motors only — not worm-only / brick-axle motors.
+  return piece.ports.some((p) => p.id === 'drive' || p.id === 'axle')
+}
+
+/** Motor housing with connector mounting lugs (structural, not drive). */
+export function isMotorWithLugs(piece: CatalogPiece): boolean {
+  return piece.category === 'motors' && piece.ports.some((p) => p.kind === 'connector-lug')
 }

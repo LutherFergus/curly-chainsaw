@@ -25,6 +25,7 @@ import {
   nearestRodEnd,
   nearestRodShaft,
   nearestGearMesh,
+  nearestMotorLug,
   connectorPosesOnShaft,
   hubPosesOnShaft,
   sleevePosesOnShaft,
@@ -364,6 +365,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     }
 
     if (isConnectorLike(catalog)) {
+      const lugHit = nearestMotorLug(
+        catalog,
+        pieces,
+        point,
+        new THREE.Vector3(...workNormal),
+      )
       const hit = nearestRodShaft(pieces, point)
       const leave = SNAP_DISTANCE + 0.55
       const sameTip =
@@ -381,6 +388,55 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       const endDist = rodEnd
         ? new THREE.Vector3(...rodEnd.position).distanceTo(point)
         : Number.POSITIVE_INFINITY
+      const lugDist = lugHit
+        ? (() => {
+            const motor = getCatalogPiece(lugHit.piece.catalogId)
+            if (!motor) return Number.POSITIVE_INFINITY
+            const q = new THREE.Quaternion(
+              lugHit.piece.rotation[0],
+              lugHit.piece.rotation[1],
+              lugHit.piece.rotation[2],
+              lugHit.piece.rotation[3],
+            )
+            const lugWorld = new THREE.Vector3(...lugHit.piece.position).add(
+              new THREE.Vector3(...lugHit.lug.position).applyQuaternion(q),
+            )
+            return lugWorld.distanceTo(point)
+          })()
+        : Number.POSITIVE_INFINITY
+      if (lugHit && lugDist <= shaftDist && lugDist <= endDist) {
+        const poses = lugHit.poses
+        const sameLug =
+          rodAim &&
+          rodAim.targetPieceId === lugHit.piece.id &&
+          rodAim.targetPortId === lugHit.lug.id
+        const activeIndex = sameLug ? rodAim.activeIndex : poses.findIndex((p) => p.inPlane)
+        const index = activeIndex >= 0 && activeIndex < poses.length ? activeIndex : 0
+        const pose = poses[index]
+        set({
+          rodAim: {
+            targetPieceId: lugHit.piece.id,
+            targetPortId: lugHit.lug.id,
+            tip: pose.position,
+            poses,
+            activeIndex: index,
+            dragging: false,
+          },
+          ghost: makeGhost(
+            selectedCatalogId,
+            pose.position,
+            pose.rotation,
+            {
+              localPortId: pose.localPortId,
+              targetPieceId: lugHit.piece.id,
+              targetPortId: lugHit.lug.id,
+            },
+            pieces,
+            connections,
+          ),
+        })
+        return
+      }
       if (hit && shaftDist <= endDist) {
         const poses = hubPosesOnShaft(
           catalog,
@@ -487,6 +543,10 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       if (catalog.category === 'gears') {
         const mesh = nearestGearMesh(catalog, pieces, point)
         if (mesh) {
+          const targetCat = getCatalogPiece(mesh.piece.catalogId)
+          const meshPort =
+            targetCat?.ports.find((p) => p.id === 'worm') ??
+            targetCat?.ports.find((p) => p.kind === 'gear-mesh')
           set({
             rodAim: null,
             ghost: makeGhost(
@@ -496,7 +556,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
               {
                 localPortId: mesh.pose.localPortId,
                 targetPieceId: mesh.piece.id,
-                targetPortId: 'mesh',
+                targetPortId: meshPort?.id ?? 'mesh',
               },
               pieces,
               connections,

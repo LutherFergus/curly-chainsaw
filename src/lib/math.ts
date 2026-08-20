@@ -16,6 +16,8 @@ import {
   GEAR_MESH_TOLERANCE,
   HUB_HEIGHT,
   HUB_RADIUS,
+  MOTOR_WORM_PITCH_R_MM,
+  mm,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
   SHAFT_END_INSET,
@@ -163,7 +165,15 @@ export function isCenterSocket(portId: string): boolean {
 
 /** Coaxial hole a rod shaft can pass through (hub center, spacer/wheel/gear bore). */
 export function isThroughHoleSocket(portId: string): boolean {
-  return isCenterSocket(portId) || portId === 'bore' || portId === 'axle'
+  return (
+    isCenterSocket(portId) ||
+    portId === 'bore' ||
+    portId === 'axle' ||
+    portId === 'drive' ||
+    portId === 'drive-end' ||
+    portId.startsWith('mount-') ||
+    portId === 'rod-loop'
+  )
 }
 
 export function hasInterlock(catalog: CatalogPiece): boolean {
@@ -914,7 +924,7 @@ export function sleevePosesOnShaft(
 ): ConnectorAimPose[] {
   if (!isShaftSleeve(catalog)) return []
   const axle =
-    catalog.ports.find((p) => p.id === 'bore' || p.id === 'axle') ??
+    catalog.ports.find((p) => p.id === 'drive' || p.id === 'bore' || p.id === 'axle') ??
     catalog.ports.find((p) => p.kind === 'socket')
   if (!axle) return []
   const { origin, dir, half } = rodAxis(rod)
@@ -941,6 +951,7 @@ export function sleevePosesOnShaft(
 
 /**
  * Seat a gear so its teeth mesh with a placed gear (parallel axes, pitch spacing).
+ * Also seats beside a 12 V motor worm (gear-mesh port on the motor).
  * Cursor picks which side of the target the new gear sits on.
  */
 export function gearMeshPoseOnGear(
@@ -950,13 +961,24 @@ export function gearMeshPoseOnGear(
 ): ConnectorAimPose | null {
   if (catalog.category !== 'gears') return null
   const targetCat = getCatalogPiece(target.catalogId)
-  if (!targetCat || targetCat.category !== 'gears') return null
+  if (!targetCat) return null
   if (!catalog.ports.some((p) => p.kind === 'gear-mesh')) return null
 
-  const dist = gearMeshCenterDistance(catalog, targetCat)
+  const worm = targetCat.ports.find((p) => p.id === 'worm' && p.kind === 'gear-mesh')
+  const isWorm = targetCat.category === 'motors' && Boolean(worm)
+  if (targetCat.category !== 'gears' && !isWorm) return null
+
   const qTarget = quatFromTuple(target.rotation)
   const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(qTarget).normalize()
   const origin = new THREE.Vector3(...target.position)
+  if (worm) {
+    origin.add(new THREE.Vector3(...worm.position).applyQuaternion(qTarget))
+  }
+
+  const wormR = mm(MOTOR_WORM_PITCH_R_MM)
+  const dist = isWorm
+    ? (catalog.radius ?? 0) + wormR
+    : gearMeshCenterDistance(catalog, targetCat)
 
   const planar = cursor.clone().sub(origin)
   planar.sub(axis.clone().multiplyScalar(planar.dot(axis)))
@@ -1000,11 +1022,19 @@ export function nearestGearMesh(
   let bestDist = maxDistance
   for (const piece of pieces) {
     const other = getCatalogPiece(piece.catalogId)
-    if (!other || other.category !== 'gears') continue
+    if (!other) continue
+    const worm = other.ports.find((p) => p.id === 'worm')
+    if (other.category !== 'gears' && !(other.category === 'motors' && worm)) continue
     const pose = gearMeshPoseOnGear(catalog, piece, cursor)
     if (!pose) continue
-    const ideal = gearMeshCenterDistance(catalog, other)
-    const centerDist = cursor.distanceTo(new THREE.Vector3(...piece.position))
+    const q = quatFromTuple(piece.rotation)
+    const origin = new THREE.Vector3(...piece.position)
+    if (worm) origin.add(new THREE.Vector3(...worm.position).applyQuaternion(q))
+    const ideal =
+      other.category === 'motors'
+        ? (catalog.radius ?? 0) + mm(MOTOR_WORM_PITCH_R_MM)
+        : gearMeshCenterDistance(catalog, other)
+    const centerDist = cursor.distanceTo(origin)
     const rimDist = Math.abs(centerDist - ideal)
     if (rimDist < bestDist) {
       bestDist = rimDist
@@ -1012,6 +1042,98 @@ export function nearestGearMesh(
     }
   }
   return best
+}
+
+/**
+ * Seat a Classic connector on a motor housing lug (structural mount).
+ * Aligns the connector hub axis with the motor drive axis so a rod can
+ * pass connector → motor drive → connector.
+ */
+export function connectorPosesOnMotorLug(
+  catalog: CatalogPiece,
+  motor: PlacedPiece,
+  lug: PortDef,
+  workNormal: THREE.Vector3,
+): ConnectorAimPose[] {
+  if (!isConnectorLike(catalog) || lug.kind !== 'connector-lug') return []
+  const center = catalog.ports.find((p) => isCenterSocket(p.id))
+  if (!center) return []
+
+  const qMotor = quatFromTuple(motor.rotation)
+  const lugWorld = new THREE.Vector3(...motor.position).add(
+    new THREE.Vector3(...lug.position).applyQuaternion(qMotor),
+  )
+  const driveAxis = new THREE.Vector3(...lug.direction).applyQuaternion(qMotor).normalize()
+
+  const poses: ConnectorAimPose[] = []
+  for (const hubSign of [1, -1] as const) {
+    // Connector local Y (hub) → ± motor drive axis (lug outward).
+    const desiredHub = driveAxis.clone().multiplyScalar(hubSign)
+    const rotation = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(...center.direction).normalize(),
+      desiredHub,
+    )
+    // Fan clips toward the working plane when possible.
+    const localFan = new THREE.Vector3(0, 0, 1).applyQuaternion(rotation)
+    const planar = workNormal.clone().addScaledVector(desiredHub, -workNormal.dot(desiredHub))
+    if (planar.lengthSq() > 1e-6) {
+      planar.normalize()
+      const fanPlanar = localFan.clone().addScaledVector(desiredHub, -localFan.dot(desiredHub))
+      if (fanPlanar.lengthSq() > 1e-6) {
+        fanPlanar.normalize()
+        const twist = new THREE.Quaternion().setFromUnitVectors(fanPlanar, planar)
+        rotation.premultiply(twist)
+      }
+    }
+
+    const localCenter = new THREE.Vector3(...center.position).applyQuaternion(rotation)
+    // Seat hub just outside the lug face.
+    const seat = lugWorld
+      .clone()
+      .addScaledVector(driveAxis, (HUB_HEIGHT / 2) * (hubSign === 1 ? 1 : -1) * 0.15)
+    const position = seat.clone().sub(localCenter)
+    const inPlane = Math.abs(desiredHub.dot(workNormal)) < 0.35
+    poses.push({
+      position: [position.x, position.y, position.z],
+      rotation: canonicalRotation(tupleFromQuat(rotation)),
+      localPortId: center.id,
+      fan: [desiredHub.x, desiredHub.y, desiredHub.z],
+      inPlane,
+    })
+  }
+  poses.sort((a, b) => Number(b.inPlane) - Number(a.inPlane))
+  return poses
+}
+
+export function nearestMotorLug(
+  catalog: CatalogPiece,
+  pieces: PlacedPiece[],
+  cursor: THREE.Vector3,
+  workNormal: THREE.Vector3,
+  maxDistance = SNAP_DISTANCE + 0.4,
+): { piece: PlacedPiece; lug: PortDef; poses: ConnectorAimPose[] } | null {
+  if (!isConnectorLike(catalog)) return null
+  let best: { piece: PlacedPiece; lug: PortDef; poses: ConnectorAimPose[]; dist: number } | null =
+    null
+  for (const piece of pieces) {
+    const motor = getCatalogPiece(piece.catalogId)
+    if (!motor || motor.category !== 'motors') continue
+    const q = quatFromTuple(piece.rotation)
+    for (const lug of motor.ports) {
+      if (lug.kind !== 'connector-lug') continue
+      const lugWorld = new THREE.Vector3(...piece.position).add(
+        new THREE.Vector3(...lug.position).applyQuaternion(q),
+      )
+      const dist = cursor.distanceTo(lugWorld)
+      if (dist > maxDistance) continue
+      if (best && dist >= best.dist) continue
+      const poses = connectorPosesOnMotorLug(catalog, piece, lug, workNormal)
+      if (!poses.length) continue
+      best = { piece, lug, poses, dist }
+    }
+  }
+  if (!best) return null
+  return { piece: best.piece, lug: best.lug, poses: best.poses }
 }
 
 /** Parallel spur gears with teeth interleaved — a join, not a hit. */
@@ -1548,6 +1670,8 @@ function distPointToAxis(
 function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
   if (a.kind === 'interlock' && b.kind === 'interlock') return true
   if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') return true
+  if (a.kind === 'connector-lug' && b.kind === 'socket' && isCenterSocket(b.portId)) return true
+  if (b.kind === 'connector-lug' && a.kind === 'socket' && isCenterSocket(a.portId)) return true
   if (a.kind === 'rod-end' && b.kind === 'socket') return !isThroughHoleSocket(b.portId)
   if (a.kind === 'socket' && b.kind === 'rod-end') return !isThroughHoleSocket(a.portId)
   if (a.kind === 'shaft' && b.kind === 'socket') return true
@@ -1560,6 +1684,8 @@ function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
   if (a.kind === 'interlock' || b.kind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
   // Gear mesh ports are radial placeholders; axis alignment is checked via piece poses.
   if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') return true
+  // Connector hub seats on motor lug coaxially (hub axis // lug / drive axis).
+  if (a.kind === 'connector-lug' || b.kind === 'connector-lug') return Math.abs(dot) > 0.9
   const shaftClip =
     (a.kind === 'shaft' && isClipSocketPort(b)) || (b.kind === 'shaft' && isClipSocketPort(a))
   if (shaftClip) return Math.abs(dot) < POSE_DIR_PERP
@@ -1657,6 +1783,10 @@ export function occupancyKeys(pieces: PlacedPiece[], connections: Connection[]):
 function portsCompatible(local: PortDef, target: WorldPort): boolean {
   if (local.kind === 'interlock' && target.kind === 'interlock') return true
   if (local.kind === 'gear-mesh' && target.kind === 'gear-mesh') return true
+  if (local.kind === 'connector-lug' && target.kind === 'socket' && isCenterSocket(target.portId))
+    return true
+  if (local.kind === 'socket' && isCenterSocket(local.id) && target.kind === 'connector-lug')
+    return true
   if (local.kind === 'rod-end' && target.kind === 'socket') return !isThroughHoleSocket(target.portId)
   if (local.kind === 'socket' && target.kind === 'rod-end') return !isThroughHoleSocket(local.id)
   if (local.kind === 'shaft' && target.kind === 'socket') return isThroughHoleSocket(target.portId)
