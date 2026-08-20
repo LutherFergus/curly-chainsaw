@@ -14,12 +14,15 @@ import {
   connectorPosesOnRodEnd,
   connectorWorkNormal,
   findBestSnap,
+  findBestSnapOnRay,
+  findRodConnectorAim,
   nearestRodEnd,
   nextUsableConnectorPose,
   occupiedPortKeys,
   SNAP_DISTANCE,
   snapPointToGrid,
   type ConnectorAimPose,
+  type PointerView,
 } from '../lib/math'
 import * as THREE from 'three'
 
@@ -78,12 +81,12 @@ interface BuilderState {
   setToolsOpen: (open: boolean) => void
   toggleTools: () => void
   selectPiece: (id: string | null) => void
-  updateGhost: (point: THREE.Vector3) => void
+  updateGhost: (point: THREE.Vector3, view?: PointerView) => void
   aimRodPose: (index: number) => void
   setRodAimDragging: (dragging: boolean) => void
   clearRodAim: () => void
   beginRodSteer: (anchor: THREE.Vector3) => void
-  steerRod: (tip: THREE.Vector3) => void
+  steerRod: (tip: THREE.Vector3, view?: PointerView) => void
   endRodSteer: () => void
   clearGhost: () => void
   placeGhost: () => void
@@ -165,7 +168,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   selectPiece: (id) => set({ selectedPieceId: id, tool: 'select', rodAim: null, rodSteer: null }),
 
-  updateGhost: (point) => {
+  updateGhost: (point, view) => {
     const { selectedCatalogId, pieces, connections, tool, rodAim, workNormal } = get()
     if (tool !== 'place' || !selectedCatalogId) {
       set({ ghost: null, rodAim: null, rodSteer: null })
@@ -182,6 +185,28 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
     const occupied = occupiedPortKeys(connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+
+    if (catalog.category === 'rods' && view) {
+      const hoverSnap =
+        findRodConnectorAim(catalog, pieces, freePorts, view) ??
+        findBestSnapOnRay(catalog, freePorts, view.ray)
+      if (hoverSnap) {
+        set({
+          rodAim: null,
+          ghost: {
+            catalogId: selectedCatalogId,
+            position: hoverSnap.position,
+            rotation: hoverSnap.rotation,
+            snap: {
+              localPortId: hoverSnap.localPortId,
+              targetPieceId: hoverSnap.target.pieceId,
+              targetPortId: hoverSnap.target.portId,
+            },
+          },
+        })
+        return
+      }
+    }
 
     if (catalog.category === 'connectors') {
       const leave = SNAP_DISTANCE + 0.55
@@ -296,10 +321,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       rodSteer: { anchor: [anchor.x, anchor.y, anchor.z] },
       rodAim: null,
     })
-    get().steerRod(anchor)
   },
 
-  steerRod: (tip) => {
+  steerRod: (tip, view) => {
     const { selectedCatalogId, pieces, connections, tool, rodSteer, workNormal } = get()
     if (tool !== 'place' || !selectedCatalogId || !rodSteer) return
     const catalog = getCatalogPiece(selectedCatalogId)
@@ -307,7 +331,11 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
     const occupied = occupiedPortKeys(connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
-    const snap = findBestSnap(catalog, freePorts, tip)
+    const hoverSnap = view
+      ? (findRodConnectorAim(catalog, pieces, freePorts, view) ??
+        findBestSnapOnRay(catalog, freePorts, view.ray))
+      : null
+    const snap = hoverSnap ?? findBestSnap(catalog, freePorts, tip)
     if (snap) {
       set({
         ghost: {

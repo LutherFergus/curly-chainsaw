@@ -1,7 +1,7 @@
 export type PieceCategory = 'rods' | 'connectors' | 'wheels' | 'gears'
 
 /** rod-end ↔ socket; interlock ↔ interlock (connector plates slid together) */
-export type PortKind = 'rod-end' | 'socket' | 'interlock'
+export type PortKind = 'rod-end' | 'socket' | 'interlock' | 'shaft'
 
 export type ConnectorVariant =
   | 'plate' // flat non-slotted connector
@@ -18,6 +18,8 @@ export interface PortDef {
   position: [number, number, number]
   /** Local-space outward direction of the connection */
   direction: [number, number, number]
+  /** Local-space C-clip mouth axis (plate hub). Rods can elevate in this plane. */
+  opening?: [number, number, number]
 }
 
 export interface CatalogPiece {

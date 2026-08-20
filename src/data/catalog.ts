@@ -71,6 +71,10 @@ function rodPorts(length: number): PortDef[] {
   ]
 }
 
+function shaftPort(): PortDef {
+  return { id: 'shaft', kind: 'shaft', position: [0, 0, 0], direction: [0, 0, 1] }
+}
+
 /** Clips around hub axis Y (connector lying in XZ). */
 function clipsAroundY(angles: readonly number[], prefix: string): PortDef[] {
   const r = SOCKET_RADIUS
@@ -83,6 +87,7 @@ function clipsAroundY(angles: readonly number[], prefix: string): PortDef[] {
       kind: 'socket' as const,
       position: [x, 0, z] as [number, number, number],
       direction: [Math.sin(a), 0, Math.cos(a)] as [number, number, number],
+      opening: [0, 1, 0] as [number, number, number],
     }
   })
 }
@@ -99,6 +104,7 @@ function clipsAroundZ(angles: readonly number[], prefix: string): PortDef[] {
       kind: 'socket' as const,
       position: [x, y, 0] as [number, number, number],
       direction: [Math.sin(a), Math.cos(a), 0] as [number, number, number],
+      opening: [0, 0, 1] as [number, number, number],
     }
   })
 }
@@ -122,6 +128,26 @@ function axleSocket(): PortDef {
   }
 }
 
+function centerSocket(id: string, direction: [number, number, number]): PortDef {
+  return {
+    id,
+    kind: 'socket',
+    position: [0, 0, 0],
+    direction,
+  }
+}
+
+function withCenters(ports: PortDef[], variant?: CatalogPiece['variant']): PortDef[] {
+  if (
+    variant === 'double-full' ||
+    variant === 'full-half' ||
+    variant === 'half-half'
+  ) {
+    return [...ports, centerSocket('center-y', [0, 1, 0]), centerSocket('center-z', [0, 0, 1])]
+  }
+  return [...ports, centerSocket('center', [0, 1, 0])]
+}
+
 const connectors: CatalogPiece[] = [
   {
     id: 'conn-orange-straight',
@@ -130,7 +156,7 @@ const connectors: CatalogPiece[] = [
     description: '180° in-line C-clips. Does not combine with other connectors.',
     color: '#fd7e14',
     variant: 'plate',
-    ports: clipsAroundY([0, 180], 's'),
+    ports: withCenters(clipsAroundY([0, 180], 's'), 'plate'),
   },
   {
     id: 'conn-90',
@@ -139,7 +165,7 @@ const connectors: CatalogPiece[] = [
     description: 'Same-plane clips at 0°, 45°, and 90°. Does not combine with other connectors.',
     color: '#fa5252',
     variant: 'plate',
-    ports: clipsAroundY([0, 45, 90], 's'),
+    ports: withCenters(clipsAroundY([0, 45, 90], 's'), 'plate'),
   },
   {
     id: 'conn-yellow-5',
@@ -148,7 +174,7 @@ const connectors: CatalogPiece[] = [
     description: 'Yellow flat hub with five C-clips. Does not combine with other connectors.',
     color: '#fcc419',
     variant: 'plate',
-    ports: clipsAroundY([0, 45, 90, 135, 180], 's'),
+    ports: withCenters(clipsAroundY([0, 45, 90, 135, 180], 's'), 'plate'),
   },
   {
     id: 'conn-white-8',
@@ -158,7 +184,7 @@ const connectors: CatalogPiece[] = [
     color: '#f8f9fa',
     accent: '#ced4da',
     variant: 'plate',
-    ports: clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 's'),
+    ports: withCenters(clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 's'), 'plate'),
   },
   {
     id: 'conn-full-slot',
@@ -168,7 +194,7 @@ const connectors: CatalogPiece[] = [
       '7 C-clips plus a center notch. Combines with other slotted connectors for 3D hubs.',
     color: '#1c7ed6',
     variant: 'full',
-    ports: [...clipsAroundY(FULL_CLIP_ANGLES, 's'), interlockPort()],
+    ports: withCenters([...clipsAroundY(FULL_CLIP_ANGLES, 's'), interlockPort()], 'full'),
   },
   {
     id: 'conn-half-slot',
@@ -179,7 +205,7 @@ const connectors: CatalogPiece[] = [
     color: '#adb5bd',
     accent: '#868e96',
     variant: 'half',
-    ports: [...clipsAroundY(HALF_CLIP_ANGLES, 's'), interlockPort()],
+    ports: withCenters([...clipsAroundY(HALF_CLIP_ANGLES, 's'), interlockPort()], 'half'),
   },
   {
     id: 'hub-double-full',
@@ -188,10 +214,13 @@ const connectors: CatalogPiece[] = [
     description: 'Two full slotted connectors slid together — clip options on 2 axes.',
     color: '#1c7ed6',
     variant: 'double-full',
-    ports: [
-      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'a'),
-      ...clipsAroundZ([0, 45, 90, 135, 180, 225, 270, 315], 'b'),
-    ],
+    ports: withCenters(
+      [
+        ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'a'),
+        ...clipsAroundZ([0, 45, 90, 135, 180, 225, 270, 315], 'b'),
+      ],
+      'double-full',
+    ),
   },
   {
     id: 'hub-full-half',
@@ -201,10 +230,13 @@ const connectors: CatalogPiece[] = [
     color: '#1c7ed6',
     accent: '#adb5bd',
     variant: 'full-half',
-    ports: [
-      ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'full'),
-      ...clipsAroundZ(HALF_CLIP_ANGLES, 'half'),
-    ],
+    ports: withCenters(
+      [
+        ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'full'),
+        ...clipsAroundZ(HALF_CLIP_ANGLES, 'half'),
+      ],
+      'full-half',
+    ),
   },
   {
     id: 'hub-half-half',
@@ -215,10 +247,13 @@ const connectors: CatalogPiece[] = [
     color: '#adb5bd',
     accent: '#868e96',
     variant: 'half-half',
-    ports: [
-      ...clipsAroundY(HALF_CLIP_ANGLES, 'a'),
-      ...clipsAroundZ(HALF_CLIP_ANGLES, 'b'),
-    ],
+    ports: withCenters(
+      [
+        ...clipsAroundY(HALF_CLIP_ANGLES, 'a'),
+        ...clipsAroundZ(HALF_CLIP_ANGLES, 'b'),
+      ],
+      'half-half',
+    ),
   },
 ]
 
@@ -272,7 +307,7 @@ export const CATALOG: CatalogPiece[] = [
       description: spec.description,
       color: spec.color,
       length,
-      ports: rodPorts(length),
+      ports: [...rodPorts(length), shaftPort()],
     }
   }),
   ...connectors,
