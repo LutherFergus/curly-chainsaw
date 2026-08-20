@@ -7,7 +7,7 @@ import type {
   PortDef,
   WorldPort,
 } from '../types/knex'
-import { getCatalogPiece, SOCKET_RADIUS } from '../data/catalog'
+import { getCatalogPiece, isPreassembledHub, SOCKET_RADIUS } from '../data/catalog'
 
 /** Max cursor distance to a free port for snap to engage. */
 export const SNAP_DISTANCE = 1.75
@@ -61,12 +61,26 @@ export function allWorldPorts(
   for (const piece of pieces) {
     const catalog = getCatalogPiece(piece.catalogId)
     if (!catalog) continue
+    const centerBlocked = centerHoleBlocked(piece, catalog, occupiedKeys)
     for (const port of catalog.ports) {
+      if (centerBlocked && isCenterSocket(port.id)) continue
       const key = `${piece.id}:${port.id}`
       result.push(worldPort(piece, port, occupiedKeys.has(key)))
     }
   }
   return result
+}
+
+/** Nested 3D connectors fill the hub — no rod through the center. */
+function centerHoleBlocked(
+  piece: PlacedPiece,
+  catalog: CatalogPiece,
+  occupiedKeys: Set<string>,
+): boolean {
+  if (isPreassembledHub(catalog)) return true
+  const interlock = catalog.ports.find((p) => p.kind === 'interlock')
+  if (!interlock) return false
+  return occupiedKeys.has(`${piece.id}:${interlock.id}`)
 }
 
 export function snapPointToGrid(point: THREE.Vector3, y = 0.35): THREE.Vector3 {

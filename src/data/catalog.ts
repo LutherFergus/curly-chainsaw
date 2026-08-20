@@ -150,12 +150,9 @@ function centerSocket(id: string, direction: [number, number, number]): PortDef 
 }
 
 function withCenters(ports: PortDef[], variant?: CatalogPiece['variant']): PortDef[] {
-  if (
-    variant === 'double-full' ||
-    variant === 'full-half' ||
-    variant === 'half-half'
-  ) {
-    return [...ports, centerSocket('center-y', [0, 1, 0]), centerSocket('center-x', [1, 0, 0])]
+  // Pre-assembled 3D hubs have no through-hole — the nested plates fill the center.
+  if (variant === 'double-full' || variant === 'full-half' || variant === 'half-half') {
+    return ports
   }
   return [...ports, centerSocket('center', [0, 1, 0])]
 }
@@ -337,4 +334,13 @@ export const CATEGORY_LABELS: Record<CatalogPiece['category'], string> = {
 
 export function getCatalogPiece(id: string): CatalogPiece | undefined {
   return CATALOG.find((p) => p.id === id)
+}
+
+/** Two-piece 3D hubs are built by sliding singles together, not picked from the palette. */
+export function isPreassembledHub(piece: CatalogPiece): boolean {
+  return (
+    piece.variant === 'double-full' ||
+    piece.variant === 'full-half' ||
+    piece.variant === 'half-half'
+  )
 }
