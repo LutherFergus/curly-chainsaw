@@ -19,6 +19,8 @@ export const HUB_RADIUS = mm(6.6)
 export const HUB_HEIGHT = mm(7.4)
 /** Gripping arms extend outward from the socket end wall over the rod. */
 export const CLIP_ARM_LENGTH = mm(8.6)
+/** Keep perp clips off the rod-end flanges. */
+export const SHAFT_END_INSET = mm(6.2)
 
 /**
  * Physical rod body lengths (mm). Hub-to-hub = body + 2×10.1 mm, which

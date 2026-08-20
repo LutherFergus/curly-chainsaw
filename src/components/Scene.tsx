@@ -11,6 +11,7 @@ import {
   hasInterlock,
   isCenterSocket,
   nearestInterlockOnPointer,
+  shaftHintPort,
   occupancyKeys,
   pickConnectorAimPose,
   portOrbPosition,
@@ -149,19 +150,32 @@ function SnapHints() {
   const tool = useBuilderStore((s) => s.tool)
   const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
   const ghost = useBuilderStore((s) => s.ghost)
+  const perpSnap = useBuilderStore((s) => s.perpSnap)
+  const rodAim = useBuilderStore((s) => s.rodAim)
 
   const catalog = selectedCatalogId ? getCatalogPiece(selectedCatalogId) : undefined
   const placingRod = catalog?.category === 'rods'
+  const placingConnector = catalog?.category === 'connectors'
   const placingSlotted = catalog ? hasInterlock(catalog) : false
 
   const freePorts = useMemo(() => {
     if (tool !== 'place' || !selectedCatalogId) return []
+    if (perpSnap && placingConnector) {
+      const cursor = rodAim?.targetPortId === 'shaft'
+        ? new THREE.Vector3(...rodAim.tip)
+        : ghost
+          ? new THREE.Vector3(...ghost.position)
+          : new THREE.Vector3(0, 0.35, 0)
+      return pieces
+        .map((piece) => shaftHintPort(piece, cursor))
+        .filter((p): p is NonNullable<typeof p> => Boolean(p))
+    }
     const occupied = occupancyKeys(pieces, connections)
     return allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
-  }, [pieces, connections, tool, selectedCatalogId])
+  }, [pieces, connections, tool, selectedCatalogId, perpSnap, placingConnector, rodAim, ghost])
 
   const hints = freePorts.filter((p) => {
-    if (p.kind === 'shaft') return false
+    if (p.kind === 'shaft') return perpSnap && placingConnector
     if (placingRod) return p.kind === 'socket'
     if (placingSlotted) return p.kind === 'interlock' || p.kind === 'rod-end'
     if (p.kind === 'interlock') return false
@@ -178,25 +192,30 @@ function SnapHints() {
         const hovered = key === hoverKey
         const center = port.kind === 'socket' && isCenterSocket(port.portId)
         const slot = port.kind === 'interlock'
+        const shaft = port.kind === 'shaft'
         const color = hovered
           ? '#69db7c'
           : slot
             ? '#e64980'
-            : center
-              ? '#c0eb75'
-              : port.kind === 'socket'
-                ? '#ffd43b'
-                : '#66d9e8'
+            : shaft
+              ? '#ff922b'
+              : center
+                ? '#c0eb75'
+                : port.kind === 'socket'
+                  ? '#ffd43b'
+                  : '#66d9e8'
         const emissive = hovered
           ? '#51cf66'
           : slot
             ? '#d6336c'
-            : center
-              ? '#82c91e'
-              : port.kind === 'socket'
-                ? '#fcc419'
-                : '#22b8cf'
-        const radius = hovered ? 0.13 : slot ? 0.12 : center ? 0.08 : 0.1
+            : shaft
+              ? '#f76707'
+              : center
+                ? '#82c91e'
+                : port.kind === 'socket'
+                  ? '#fcc419'
+                  : '#22b8cf'
+        const radius = hovered ? 0.13 : slot ? 0.12 : shaft ? 0.11 : center ? 0.08 : 0.1
         const pos = portOrbPosition(port)
         return (
           <mesh key={key} position={pos} renderOrder={20}>

@@ -7,7 +7,7 @@ import type {
   PortDef,
   WorldPort,
 } from '../types/knex'
-import { getCatalogPiece, isPreassembledHub, SOCKET_RADIUS } from '../data/catalog'
+import { getCatalogPiece, isPreassembledHub, SOCKET_RADIUS, SHAFT_END_INSET } from '../data/catalog'
 
 /** Max cursor distance to a free port for snap to engage. */
 export const SNAP_DISTANCE = 1.75
@@ -734,6 +734,138 @@ export function connectorPosesOnRodEnd(
   return chosen
 }
 
+export function rodAxis(piece: PlacedPiece): {
+  origin: THREE.Vector3
+  dir: THREE.Vector3
+  half: number
+} {
+  const catalog = getCatalogPiece(piece.catalogId)
+  const half = (catalog?.length ?? 1) / 2
+  const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(quatFromTuple(piece.rotation)).normalize()
+  return { origin: new THREE.Vector3(...piece.position), dir, half }
+}
+
+export function pointOnRodShaft(piece: PlacedPiece, point: THREE.Vector3): THREE.Vector3 {
+  const { origin, dir, half } = rodAxis(piece)
+  const span = Math.max(0, half - SHAFT_END_INSET)
+  const t = THREE.MathUtils.clamp(point.clone().sub(origin).dot(dir), -span, span)
+  return origin.clone().addScaledVector(dir, t)
+}
+
+function perpendicularTo(axis: THREE.Vector3, hint: THREE.Vector3): THREE.Vector3 {
+  const radial = hint.clone().sub(axis.clone().multiplyScalar(hint.dot(axis)))
+  if (radial.lengthSq() > 1e-8) return radial.normalize()
+  const helper =
+    Math.abs(axis.dot(new THREE.Vector3(0, 1, 0))) < 0.85
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(1, 0, 0)
+  return new THREE.Vector3().crossVectors(axis, helper).normalize()
+}
+
+/** Clip opening along the rod, hub offset beside the shaft. */
+export function alignClipToShaft(
+  localPort: PortDef,
+  shaftPoint: THREE.Vector3,
+  rodAxisDir: THREE.Vector3,
+  hubRadial: THREE.Vector3,
+): { position: [number, number, number]; rotation: [number, number, number, number] } {
+  const rod = rodAxisDir.clone().normalize()
+  const radial = perpendicularTo(rod, hubRadial)
+  const towardRod = radial.clone().multiplyScalar(-1)
+  const localDir = new THREE.Vector3(...localPort.direction).normalize()
+  const rotation = new THREE.Quaternion().setFromUnitVectors(localDir, towardRod)
+
+  const localOpen = new THREE.Vector3(...(localPort.opening ?? [0, 1, 0])).normalize()
+  const openWorld = localOpen.clone().applyQuaternion(rotation)
+  const openProj = openWorld.sub(towardRod.clone().multiplyScalar(openWorld.dot(towardRod)))
+  if (openProj.lengthSq() > 1e-8) {
+    openProj.normalize()
+    const rodSign = openProj.dot(rod) < 0 ? -1 : 1
+    const desired = rod.clone().multiplyScalar(rodSign)
+    rotation.premultiply(new THREE.Quaternion().setFromUnitVectors(openProj, desired))
+  }
+
+  const localPos = new THREE.Vector3(...localPort.position).applyQuaternion(rotation)
+  const position = shaftPoint.clone().sub(localPos)
+  return {
+    position: [position.x, position.y, position.z],
+    rotation: tupleFromQuat(rotation),
+  }
+}
+
+export function connectorPosesOnShaft(
+  catalog: CatalogPiece,
+  rod: PlacedPiece,
+  shaftPoint: THREE.Vector3,
+  workNormal: THREE.Vector3,
+): ConnectorAimPose[] {
+  if (catalog.category !== 'connectors') return []
+  const { dir } = rodAxis(rod)
+  const sockets = catalog.ports.filter((p) => p.kind === 'socket' && !p.id.startsWith('center'))
+  const work = workNormal.clone().normalize()
+  const basis = perpendicularTo(dir, new THREE.Vector3().crossVectors(work, dir))
+  const seen = new Set<string>()
+  const poses: ConnectorAimPose[] = []
+
+  for (const socket of sockets) {
+    for (let t = 0; t < 8; t++) {
+      const radial = basis.clone().applyAxisAngle(dir, t * KNEX_DETENT)
+      const pose = alignClipToShaft(socket, shaftPoint, dir, radial)
+      const key = geometryKey(pose.position, pose.rotation)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const inPlane = Math.abs(radial.dot(work)) < 0.25
+      poses.push({
+        position: pose.position,
+        rotation: canonicalRotation(pose.rotation),
+        localPortId: socket.id,
+        fan: [radial.x, radial.y, radial.z],
+        inPlane,
+      })
+    }
+  }
+  const planar = poses.filter((p) => p.inPlane)
+  const chosen = planar.length ? planar : poses
+  chosen.sort((a, b) => Number(b.inPlane) - Number(a.inPlane))
+  return chosen
+}
+
+export function nearestRodShaft(
+  pieces: PlacedPiece[],
+  cursor: THREE.Vector3,
+  maxDistance = SNAP_DISTANCE,
+): { piece: PlacedPiece; point: THREE.Vector3 } | null {
+  let best: { piece: PlacedPiece; point: THREE.Vector3 } | null = null
+  let bestDist = maxDistance
+  for (const piece of pieces) {
+    const catalog = getCatalogPiece(piece.catalogId)
+    if (!catalog || catalog.category !== 'rods') continue
+    const point = pointOnRodShaft(piece, cursor)
+    const dist = point.distanceTo(cursor)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = { piece, point }
+    }
+  }
+  return best
+}
+
+export function shaftHintPort(piece: PlacedPiece, cursor: THREE.Vector3): WorldPort | null {
+  const catalog = getCatalogPiece(piece.catalogId)
+  if (!catalog || catalog.category !== 'rods') return null
+  const point = pointOnRodShaft(piece, cursor)
+  const { dir } = rodAxis(piece)
+  return {
+    pieceId: piece.id,
+    portId: 'shaft',
+    kind: 'shaft',
+    position: [point.x, point.y, point.z],
+    direction: [dir.x, dir.y, dir.z],
+    slot: [dir.x, dir.y, dir.z],
+    occupied: false,
+  }
+}
+
 export function pickConnectorAimPose(
   poses: ConnectorAimPose[],
   tip: THREE.Vector3,
@@ -794,8 +926,9 @@ export function occupiedPortKeys(
 ): Set<string> {
   const keys = new Set<string>()
   for (const c of connections) {
-    keys.add(`${c.aPieceId}:${c.aPortId}`)
-    keys.add(`${c.bPieceId}:${c.bPortId}`)
+    // A rod shaft can hold several perp clips (and a through-hub); do not fill the whole shaft.
+    if (c.aPortId !== 'shaft') keys.add(`${c.aPieceId}:${c.aPortId}`)
+    if (c.bPortId !== 'shaft') keys.add(`${c.bPieceId}:${c.bPortId}`)
   }
   return keys
 }
@@ -810,18 +943,37 @@ function portKey(pieceId: string, portId: string): string {
  */
 const COUPLE_DIST = 0.11
 
+function isClipSocketPort(port: WorldPort): boolean {
+  return port.kind === 'socket' && !isCenterSocket(port.portId)
+}
+
+function distPointToAxis(
+  point: [number, number, number],
+  origin: [number, number, number],
+  direction: [number, number, number],
+): number {
+  const p = new THREE.Vector3(...point)
+  const o = new THREE.Vector3(...origin)
+  const d = new THREE.Vector3(...direction).normalize()
+  const t = p.clone().sub(o).dot(d)
+  return o.addScaledVector(d, t).distanceTo(p)
+}
+
 function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
   if (a.kind === 'interlock' && b.kind === 'interlock') return true
   if (a.kind === 'rod-end' && b.kind === 'socket') return !isCenterSocket(b.portId)
   if (a.kind === 'socket' && b.kind === 'rod-end') return !isCenterSocket(a.portId)
-  if (a.kind === 'shaft' && b.kind === 'socket') return isCenterSocket(b.portId)
-  if (a.kind === 'socket' && b.kind === 'shaft') return isCenterSocket(a.portId)
+  if (a.kind === 'shaft' && b.kind === 'socket') return true
+  if (a.kind === 'socket' && b.kind === 'shaft') return true
   return false
 }
 
 function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
   const dot = new THREE.Vector3(...a.direction).dot(new THREE.Vector3(...b.direction))
   if (a.kind === 'interlock' || b.kind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
+  const shaftClip =
+    (a.kind === 'shaft' && isClipSocketPort(b)) || (b.kind === 'shaft' && isClipSocketPort(a))
+  if (shaftClip) return Math.abs(dot) < POSE_DIR_PERP
   if (
     a.kind === 'shaft' ||
     b.kind === 'shaft' ||
@@ -831,6 +983,17 @@ function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
     return Math.abs(dot) > 0.9
   }
   return dot < POSE_DIR_OPPOSITE
+}
+
+function pairDistance(a: WorldPort, b: WorldPort): number {
+  const shaftClip =
+    (a.kind === 'shaft' && isClipSocketPort(b)) || (b.kind === 'shaft' && isClipSocketPort(a))
+  if (shaftClip) {
+    const shaft = a.kind === 'shaft' ? a : b
+    const clip = a.kind === 'shaft' ? b : a
+    return distPointToAxis(clip.position, shaft.position, shaft.direction)
+  }
+  return new THREE.Vector3(...a.position).distanceTo(new THREE.Vector3(...b.position))
 }
 
 /**
@@ -851,7 +1014,7 @@ export function mergeGeometricConnections(
       const b = free[j]
       if (a.pieceId === b.pieceId) continue
       if (!worldPortsCompatible(a, b)) continue
-      const dist = new THREE.Vector3(...a.position).distanceTo(new THREE.Vector3(...b.position))
+      const dist = pairDistance(a, b)
       if (dist > COUPLE_DIST) continue
       if (!worldDirectionsMatch(a, b)) continue
       pairs.push({ a, b, dist })
@@ -863,9 +1026,9 @@ export function mergeGeometricConnections(
   for (const { a, b } of pairs) {
     const ka = portKey(a.pieceId, a.portId)
     const kb = portKey(b.pieceId, b.portId)
-    if (used.has(ka) || used.has(kb)) continue
-    used.add(ka)
-    used.add(kb)
+    if ((a.portId !== 'shaft' && used.has(ka)) || (b.portId !== 'shaft' && used.has(kb))) continue
+    if (a.portId !== 'shaft') used.add(ka)
+    if (b.portId !== 'shaft') used.add(kb)
     extra.push({
       aPieceId: a.pieceId,
       aPortId: a.portId,
@@ -886,7 +1049,7 @@ function portsCompatible(local: PortDef, target: WorldPort): boolean {
   if (local.kind === 'rod-end' && target.kind === 'socket') return !isCenterSocket(target.portId)
   if (local.kind === 'socket' && target.kind === 'rod-end') return !isCenterSocket(local.id)
   if (local.kind === 'shaft' && target.kind === 'socket') return isCenterSocket(target.portId)
-  if (local.kind === 'socket' && target.kind === 'shaft') return isCenterSocket(local.id)
+  if (local.kind === 'socket' && target.kind === 'shaft') return !isCenterSocket(local.id)
   return false
 }
 
@@ -896,7 +1059,10 @@ function directionsMatch(local: PortDef, a: THREE.Vector3, b: THREE.Vector3): bo
   if (local.kind === 'shaft' || (local.kind === 'socket' && isCenterSocket(local.id))) {
     return Math.abs(dot) > 0.9
   }
-  // In-plane clip snaps are opposite the socket direction.
+  if (local.kind === 'socket') {
+    if (Math.abs(dot) < POSE_DIR_PERP) return true
+    return dot < POSE_DIR_OPPOSITE
+  }
   return dot < POSE_DIR_OPPOSITE
 }
 
@@ -983,9 +1149,10 @@ export function retargetConnectorConnections(
       if (used.has(local.id)) continue
       if (!portsCompatible(local, job.target)) continue
       const wp = worldPort(piece, local, true)
-      const dist = new THREE.Vector3(...wp.position).distanceTo(
-        new THREE.Vector3(...job.target.position),
-      )
+      const dist =
+        job.target.kind === 'shaft'
+          ? distPointToAxis(wp.position, job.target.position, job.target.direction)
+          : new THREE.Vector3(...wp.position).distanceTo(new THREE.Vector3(...job.target.position))
       if (dist > POSE_POS_TOL) continue
       if (!directionsMatch(local, new THREE.Vector3(...wp.direction), targetDir)) continue
       if (local.kind === 'interlock') {
@@ -1108,6 +1275,15 @@ function isCurrentPose(
   return poseDistance(piece, pose) < 0.12
 }
 
+function shaftMateOf(piece: PlacedPiece, connections: Connection[]): Connection | null {
+  for (const conn of connections) {
+    if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
+    const partnerPort = conn.aPieceId === piece.id ? conn.bPortId : conn.aPortId
+    if (partnerPort === 'shaft') return conn
+  }
+  return null
+}
+
 /**
  * Next discrete K'NEX orientation for a connector.
  * `in-plane` spins around the current working-plate normal and only keeps
@@ -1126,6 +1302,42 @@ export function nextUsableConnectorPose(
   const workNormal = connectorWorkNormal(piece, catalog, connections)
   const origin = new THREE.Vector3(...piece.position)
   const rodDirs = connectedRodDirections(piece, catalog, pieces, connections)
+
+  const shaftMate = shaftMateOf(piece, connections)
+  if (shaftMate) {
+    const clipId =
+      shaftMate.aPieceId === piece.id ? shaftMate.aPortId : shaftMate.bPortId
+    const clip = catalog.ports.find((p) => p.id === clipId)
+    const rod = pieces.find(
+      (p) => p.id === (shaftMate.aPieceId === piece.id ? shaftMate.bPieceId : shaftMate.aPieceId),
+    )
+    if (clip && rod) {
+      const pivot = new THREE.Vector3(...worldPort(piece, clip, true).position)
+      const { dir } = rodAxis(rod)
+      const hub = new THREE.Vector3(...piece.position)
+      const radial = hub.clone().sub(pivot)
+      const axis = mode === 'in-plane' ? dir : perpendicularTo(dir, radial)
+      for (let i = 1; i <= 8; i++) {
+        const pose = rotatePoseAroundAxis(piece, axis, pivot, -i * KNEX_DETENT)
+        if (isCurrentPose(piece, pose)) continue
+        const nextPiece: PlacedPiece = { ...piece, ...pose }
+        const nextConnections = retargetConnectorConnections(
+          nextPiece,
+          catalog,
+          pieces.map((p) => (p.id === piece.id ? nextPiece : p)),
+          connections,
+        )
+        if (!nextConnections) continue
+        return {
+          position: pose.position,
+          rotation: canonicalRotation(pose.rotation),
+          connections: nextConnections,
+        }
+      }
+      return null
+    }
+  }
+
   const axis =
     mode === 'in-plane' ? workNormal : oppositeAxis(piece, workNormal, rodDirs)
 

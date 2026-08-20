@@ -34,6 +34,8 @@ export function BuildMenu() {
   const clearAll = useBuilderStore((s) => s.clearAll)
   const rotateSelectedY = useBuilderStore((s) => s.rotateSelectedY)
   const rotateSelectedOpposite = useBuilderStore((s) => s.rotateSelectedOpposite)
+  const perpSnap = useBuilderStore((s) => s.perpSnap)
+  const togglePerpSnap = useBuilderStore((s) => s.togglePerpSnap)
   const selectedPieceId = useBuilderStore((s) => s.selectedPieceId)
   const pieces = useBuilderStore((s) => s.pieces)
   const undo = useBuilderStore((s) => s.undo)
@@ -75,12 +77,13 @@ export function BuildMenu() {
         if (e.shiftKey) rotateSelectedOpposite()
         else rotateSelectedY(Math.PI / 4)
       }
+      if (key === 'p') togglePerpSnap()
       if (key === 'v') setTool('select')
       if (key === 'b') setTool('place')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [deleteSelected, rotateSelectedY, rotateSelectedOpposite, setTool, undo, redo])
+  }, [deleteSelected, rotateSelectedY, rotateSelectedOpposite, setTool, undo, redo, togglePerpSnap])
 
   const onClearClick = () => {
     if (pieces.length === 0) return
@@ -142,6 +145,14 @@ export function BuildMenu() {
             title="Rotate around the opposite axis — flip onto another working plane"
           >
             Opp. axis
+          </button>
+          <button
+            type="button"
+            className={`tool-btn${perpSnap ? ' active' : ''}`}
+            onClick={togglePerpSnap}
+            title="Snap a connector clip onto a rod shaft at 90°"
+          >
+            Perp
           </button>
           <button
             type="button"

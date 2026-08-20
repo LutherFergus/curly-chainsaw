@@ -23,6 +23,8 @@ import {
   hasInterlock,
   nearestInterlockOnPointer,
   nearestRodEnd,
+  nearestRodShaft,
+  connectorPosesOnShaft,
   nextUsableConnectorPose,
   occupancyKeys,
   mergeGeometricConnections,
@@ -57,6 +59,7 @@ interface BuilderState {
   menuOpen: boolean
   toolsOpen: boolean
   workNormal: [number, number, number]
+  perpSnap: boolean
   past: Snapshot[]
   future: Snapshot[]
   ghost: {
@@ -93,6 +96,7 @@ interface BuilderState {
   toggleMenu: () => void
   setToolsOpen: (open: boolean) => void
   toggleTools: () => void
+  togglePerpSnap: () => void
   selectPiece: (id: string | null) => void
   updateGhost: (point: THREE.Vector3, view?: PointerView) => void
   aimRodPose: (index: number) => void
@@ -164,6 +168,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   menuOpen: true,
   toolsOpen: true,
   workNormal: [0, 1, 0],
+  perpSnap: false,
   past: [],
   future: [],
   ghost: null,
@@ -201,12 +206,13 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   toggleMenu: () => set({ menuOpen: !get().menuOpen }),
   setToolsOpen: (open) => set({ toolsOpen: open }),
   toggleTools: () => set({ toolsOpen: !get().toolsOpen }),
+  togglePerpSnap: () => set({ perpSnap: !get().perpSnap }),
 
   selectPiece: (id) =>
     set({ selectedPieceId: id, tool: 'select', rodAim: null, rodSteer: null, slotSteer: null }),
 
   updateGhost: (point, view) => {
-    const { selectedCatalogId, pieces, connections, tool, rodAim, workNormal } = get()
+    const { selectedCatalogId, pieces, connections, tool, rodAim, workNormal, perpSnap } = get()
     if (tool !== 'place' || !selectedCatalogId) {
       set({ ghost: null, rodAim: null, rodSteer: null, slotSteer: null })
       return
@@ -266,6 +272,63 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
         })
         return
       }
+    }
+
+    if (perpSnap && catalog.category === 'connectors') {
+      const hit = nearestRodShaft(pieces, point)
+      if (hit) {
+        const poses = connectorPosesOnShaft(
+          catalog,
+          hit.piece,
+          hit.point,
+          new THREE.Vector3(...workNormal),
+        )
+        if (poses.length) {
+          const sameRod =
+            rodAim &&
+            rodAim.targetPieceId === hit.piece.id &&
+            rodAim.targetPortId === 'shaft'
+          const activeIndex = sameRod ? rodAim.activeIndex : poses.findIndex((p) => p.inPlane)
+          const index = activeIndex >= 0 && activeIndex < poses.length ? activeIndex : 0
+          const pose = poses[index]
+          set({
+            rodAim: {
+              targetPieceId: hit.piece.id,
+              targetPortId: 'shaft',
+              tip: [hit.point.x, hit.point.y, hit.point.z],
+              poses,
+              activeIndex: index,
+              dragging: false,
+            },
+            ghost: makeGhost(
+              selectedCatalogId,
+              pose.position,
+              pose.rotation,
+              {
+                localPortId: pose.localPortId,
+                targetPieceId: hit.piece.id,
+                targetPortId: 'shaft',
+              },
+              pieces,
+              connections,
+            ),
+          })
+          return
+        }
+      }
+      if (rodAim) set({ rodAim: null })
+      const grid = snapPointToGrid(point, 0.35)
+      set({
+        ghost: makeGhost(
+          selectedCatalogId,
+          [grid.x, grid.y, grid.z],
+          identityRotation,
+          null,
+          pieces,
+          connections,
+        ),
+      })
+      return
     }
 
     if (catalog.category === 'connectors') {
