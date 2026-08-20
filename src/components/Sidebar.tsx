@@ -10,7 +10,6 @@ const ORDER: PieceCategory[] = [
   'spacers',
   'wheels',
   'gears',
-  'panels',
 ]
 
 function Chevron({ direction }: { direction: 'left' | 'right' }) {
