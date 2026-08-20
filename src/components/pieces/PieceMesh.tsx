@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
 import {
+  CLIP_ARM_LENGTH,
   FULL_CLIP_ANGLES,
   HALF_CLIP_ANGLES,
   HUB_HEIGHT,
@@ -10,6 +11,7 @@ import {
   NESTED_HALF_CLIP_ANGLES,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
+  mm,
 } from '../../data/catalog'
 
 type MatProps = {
@@ -54,42 +56,50 @@ function Plastic({
 /**
  * Open C-clip — opposite of a rod end.
  * Mouth opens along hub axis (+Y) so a rod’s “+” snaps in perpendicularly.
- * Local +Z is radial out of the hub.
+ * Local +Z is radial out of the hub. Socket end wall sits at SOCKET_RADIUS
+ * (10.1 mm); gripping arms extend outward over the seated rod.
  */
 function CClip({ mat, accent }: { mat: MatProps; accent?: string }) {
-  const jawThick = 0.038
-  const jawHeight = 0.155
-  const jawLength = 0.2
-  const mouth = ROD_RADIUS_SCENE * 2.15
-  const zStart = SOCKET_RADIUS * 0.28
-  const zMid = zStart + jawLength / 2
+  const jawThick = mm(1.9)
+  const jawHeight = HUB_HEIGHT * 0.95
+  const armLen = CLIP_ARM_LENGTH
+  const mouth = ROD_RADIUS_SCENE * 2.08
+  const wallT = mm(1.2)
+  const zWall = SOCKET_RADIUS
+  const zArmMid = zWall + armLen / 2
+  const webLen = Math.max(mm(1), zWall - HUB_RADIUS)
+  const zWeb = HUB_RADIUS + webLen / 2
+  const ribR = mm(0.85)
+  const ribZ = zWall + mm(1.7)
 
   return (
     <group>
-      <mesh position={[-(mouth / 2 + jawThick / 2), 0, zMid]}>
-        <boxGeometry args={[jawThick, jawHeight, jawLength]} />
+      <mesh position={[0, 0, zWeb]}>
+        <boxGeometry args={[mouth * 0.55, jawHeight * 0.88, webLen]} />
         <Plastic mat={mat} />
       </mesh>
-      <mesh position={[mouth / 2 + jawThick / 2, 0, zMid]}>
-        <boxGeometry args={[jawThick, jawHeight, jawLength]} />
+      {/* End wall — contact face at 10.1 mm from the hub origin */}
+      <mesh position={[0, 0, zWall - wallT / 2]}>
+        <boxGeometry args={[mouth + jawThick * 2, jawHeight, wallT]} />
+        <Plastic mat={mat} color={accent ?? mat.color} />
+      </mesh>
+      <mesh position={[-(mouth / 2 + jawThick / 2), 0, zArmMid]}>
+        <boxGeometry args={[jawThick, jawHeight, armLen]} />
+        <Plastic mat={mat} />
+      </mesh>
+      <mesh position={[mouth / 2 + jawThick / 2, 0, zArmMid]}>
+        <boxGeometry args={[jawThick, jawHeight, armLen]} />
         <Plastic mat={mat} />
       </mesh>
       {/* Bottom only — top open for perpendicular + snap */}
-      <mesh position={[0, -(jawHeight / 2 - jawThick / 2), zMid]}>
-        <boxGeometry args={[mouth + jawThick * 2, jawThick, jawLength]} />
+      <mesh position={[0, -(jawHeight / 2 - jawThick / 2), zArmMid]}>
+        <boxGeometry args={[mouth + jawThick * 2, jawThick, armLen]} />
         <Plastic mat={mat} />
       </mesh>
-      <mesh position={[0, 0, zStart - 0.012]}>
-        <boxGeometry args={[mouth + jawThick * 2, jawHeight * 0.9, 0.04]} />
-        <Plastic mat={mat} color={accent ?? mat.color} />
-      </mesh>
-      {/* Inward snap bumps that catch the rod-end groove */}
+      {/* Retaining ribs near the end wall, into the rod annular groove */}
       {([-1, 1] as const).map((side) => (
-        <mesh
-          key={side}
-          position={[side * (mouth / 2 - 0.012), 0.012, zStart + jawLength * 0.55]}
-        >
-          <sphereGeometry args={[0.022, 10, 10]} />
+        <mesh key={side} position={[side * (mouth / 2 - ribR * 0.35), mm(0.4), ribZ]}>
+          <sphereGeometry args={[ribR, 10, 10]} />
           <Plastic mat={mat} color={accent ?? '#ffffff'} />
         </mesh>
       ))}
@@ -117,8 +127,10 @@ function quatForClip(direction: [number, number, number]): THREE.Quaternion {
 function InterlockSlot({ mat }: { mat: MatProps }) {
   const slotW = HUB_HEIGHT * 1.08
   const slotH = HUB_HEIGHT * 1.08
-  const slotD = SOCKET_RADIUS * 0.72
-  const z = SOCKET_RADIUS * 0.38
+  const inner = HUB_RADIUS * 0.35
+  const slotD = SOCKET_RADIUS - inner
+  const z = inner + slotD / 2
+  const nubR = mm(0.75)
   return (
     <group position={[0, 0, z]}>
       <mesh>
@@ -132,8 +144,8 @@ function InterlockSlot({ mat }: { mat: MatProps }) {
         />
       </mesh>
       {([-1, 1] as const).map((side) => (
-        <mesh key={side} position={[0, side * (slotH / 2 - 0.022), slotD * 0.12]}>
-          <sphereGeometry args={[0.02, 8, 8]} />
+        <mesh key={side} position={[0, side * (slotH / 2 - nubR), slotD * 0.12]}>
+          <sphereGeometry args={[nubR, 8, 8]} />
           <Plastic mat={mat} color="#868e96" />
         </mesh>
       ))}
@@ -184,12 +196,12 @@ function ConnectorPlate({
           </mesh>
           {([-1, 1] as const).map((side) => (
             <group key={side}>
-              <mesh position={[0, side * (hubH / 2 + 0.001), 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <mesh position={[0, side * (hubH / 2 + mm(0.04)), 0]} rotation={[Math.PI / 2, 0, 0]}>
                 <ringGeometry args={[holeR, hubR * 0.92, 22]} />
                 <Plastic mat={plateMat} color={accent ?? plateMat.color} />
               </mesh>
-              <mesh position={[0, side * (hubH / 2 + 0.012), 0]}>
-                <cylinderGeometry args={[hubR * 1.06, hubR * 1.06, 0.02, 22]} />
+              <mesh position={[0, side * (hubH / 2 + mm(0.45)), 0]}>
+                <cylinderGeometry args={[hubR * 1.06, hubR * 1.06, mm(0.75), 22]} />
                 <Plastic mat={plateMat} />
               </mesh>
             </group>
@@ -218,15 +230,15 @@ function ConnectorPlate({
       )}
 
       <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.18, 0.012, 8, 28]} />
+        <torusGeometry args={[HUB_RADIUS, mm(0.45), 8, 28]} />
         <Plastic mat={plateMat} />
       </mesh>
 
       {slotted && !nested && <InterlockSlot mat={plateMat} />}
 
       {half && !nested && (
-        <mesh position={[-0.12, 0, 0]}>
-          <boxGeometry args={[0.06, hubH * 0.95, 0.42]} />
+        <mesh position={[-HUB_RADIUS * 0.68, 0, 0]}>
+          <boxGeometry args={[mm(2.2), hubH * 0.95, SOCKET_RADIUS * 1.55]} />
           <Plastic mat={plateMat} />
         </mesh>
       )}
@@ -383,15 +395,14 @@ export function PieceMesh({
     const coreRadius = ROD_RADIUS_SCENE * 0.42
     const finWidth = ROD_RADIUS_SCENE * 0.62
     const finDepth = ROD_RADIUS_SCENE * 0.28
-    const flangeRadius = ROD_RADIUS_SCENE * 1.05
-    const flangeThickness = 0.05
-    const grooveRadius = ROD_RADIUS_SCENE * 0.62
-    const grooveLength = 0.09
-    const shoulderLength = 0.07
-    const shaftLength = Math.max(
-      0.2,
-      length - (flangeThickness + grooveLength + shoulderLength) * 2,
-    )
+    const flangeRadius = mm(8.2) / 2
+    const flangeThickness = mm(1.4)
+    const grooveRadius = mm(4.8) / 2
+    const grooveLength = mm(1.6)
+    const shoulderLength = mm(3.2)
+    const shoulderRadius = mm(6.0) / 2
+    const endStack = flangeThickness + grooveLength + shoulderLength
+    const shaftLength = Math.max(mm(2), length - endStack * 2)
     return (
       <group>
         <mesh rotation={[Math.PI / 2, 0, 0]}>
@@ -425,7 +436,7 @@ export function PieceMesh({
               </mesh>
               <mesh position={[0, 0, shoulderCenter]} rotation={[Math.PI / 2, 0, 0]}>
                 <cylinderGeometry
-                  args={[ROD_RADIUS_SCENE * 0.88, ROD_RADIUS_SCENE * 0.88, shoulderLength, 16]}
+                  args={[shoulderRadius, shoulderRadius, shoulderLength, 16]}
                 />
                 <Plastic mat={mat} />
               </mesh>

@@ -1,64 +1,76 @@
 import type { CatalogPiece, PortDef } from '../types/knex'
 
-const ROD_RADIUS = 0.08
+/**
+ * Classic K’NEX layout scale.
+ * 1 scene unit = green hub-to-hub spacing (37.5 mm). Snap math still uses
+ * catalog.length and SOCKET_RADIUS; only the millimetre mapping changed.
+ */
+export const SCENE_MM = 1 / 37.5
+export function mm(n: number): number {
+  return n * SCENE_MM
+}
 
-/** Hub center → clip grip distance. */
-export const SOCKET_RADIUS = 0.28
-export const ROD_RADIUS_SCENE = ROD_RADIUS
-/** Plate thickness (= hub diameter) so 90° interlock flats share a cube. */
-export const HUB_RADIUS = 0.11
-export const HUB_HEIGHT = HUB_RADIUS * 2
+/** Hub center → inner/base wall of every rod socket (10.1 mm). */
+export const SOCKET_RADIUS = mm(10.1)
+/** Nominal rod body radius (Ø 6.35 mm / 0.250 in). */
+export const ROD_RADIUS_SCENE = mm(6.35) / 2
+/** Hub cylinder stays inside the 10.1 mm socket wall. */
+export const HUB_RADIUS = mm(6.6)
+export const HUB_HEIGHT = mm(7.4)
+/** Gripping arms extend outward from the socket end wall over the rod. */
+export const CLIP_ARM_LENGTH = mm(8.6)
 
-/** Classic K'NEX rod lengths: center-to-center effective length uses √2 progression (green = 1). */
-const SQRT2 = Math.SQRT2
+/**
+ * Physical rod body lengths (mm). Hub-to-hub = body + 2×10.1 mm, which
+ * follows the Classic √2 node spacing (37.5, 53.0, 75.0, 106.1, 150.0, 212.1).
+ */
 const ROD_SPECS = [
   {
     id: 'rod-green',
     name: 'Green Rod',
     color: '#2f9e44',
-    effective: 1,
-    description: 'Classic #1 rod — shortest standard length.',
+    bodyMm: 17.3,
+    description: 'Classic #1 rod — just long enough for two connectors nose-to-nose.',
   },
   {
     id: 'rod-white',
     name: 'White Rod',
     color: '#f1f3f5',
-    effective: SQRT2,
-    description: 'Classic #2 rod (√2 × green).',
+    bodyMm: 32.8,
+    description: 'Classic #2 rod (√2 node spacing from green).',
   },
   {
     id: 'rod-blue',
     name: 'Blue Rod',
     color: '#1c7ed6',
-    effective: 2,
-    description: 'Classic #3 rod (2 × green).',
+    bodyMm: 54.8,
+    description: 'Classic #3 rod (2 × green node spacing).',
   },
   {
     id: 'rod-yellow',
     name: 'Yellow Rod',
     color: '#f59f00',
-    effective: 2 * SQRT2,
-    description: 'Classic #4 rod (2√2 × green).',
+    bodyMm: 85.9,
+    description: 'Classic #4 rod (2√2 × green node spacing).',
   },
   {
     id: 'rod-red',
     name: 'Red Rod',
     color: '#e03131',
-    effective: 4,
-    description: 'Classic #5 rod (4 × green).',
+    bodyMm: 129.8,
+    description: 'Classic #5 rod (4 × green node spacing).',
   },
   {
     id: 'rod-gray',
     name: 'Gray Rod',
     color: '#868e96',
-    effective: 4 * SQRT2,
+    bodyMm: 192.0,
     description: 'Classic #6 rod — longest standard length.',
   },
 ] as const
 
-/** Physical body length so end-to-end snap yields classic effective span. */
-function rodBodyLength(effective: number): number {
-  return Math.max(0.35, 2 * (effective - SOCKET_RADIUS))
+function rodBodyLength(bodyMm: number): number {
+  return mm(bodyMm)
 }
 
 /**
@@ -309,7 +321,7 @@ const gears: CatalogPiece[] = [
 
 export const CATALOG: CatalogPiece[] = [
   ...ROD_SPECS.map((spec) => {
-    const length = rodBodyLength(spec.effective)
+    const length = rodBodyLength(spec.bodyMm)
     return {
       id: spec.id,
       name: spec.name,

@@ -8,9 +8,9 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   if (piece.category === 'rods') {
     // Relative length scaled for icon (green shortest → gray longest)
     const lengths: Record<string, number> = {
-      'rod-green': 18,
-      'rod-white': 24,
-      'rod-blue': 30,
+      'rod-green': 16,
+      'rod-white': 22,
+      'rod-blue': 28,
       'rod-yellow': 38,
       'rod-red': 48,
       'rod-gray': 56,
