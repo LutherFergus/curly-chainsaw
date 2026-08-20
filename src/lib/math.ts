@@ -1075,6 +1075,8 @@ export function shaftHintPort(piece: PlacedPiece, cursor: THREE.Vector3): WorldP
 export interface SlideJoint {
   pieceId: string
   rodId: string
+  /** Pieces that stay fixed while this slide runs (rail hubs / the rod). */
+  anchorIds: string[]
   origin: [number, number, number]
   dir: [number, number, number]
   minDelta: number
@@ -1126,7 +1128,7 @@ function slideJointFromSeated(
     if (myPort?.kind === 'rod-end' || theirPort?.kind === 'rod-end') return null
   }
 
-  const joints: { rod: PlacedPiece; contact: THREE.Vector3 }[] = []
+  const joints: { rod: PlacedPiece; connector: PlacedPiece; contact: THREE.Vector3 }[] = []
   for (const conn of seated) {
     if (conn.aPieceId !== piece.id && conn.bPieceId !== piece.id) continue
     const mineIsA = conn.aPieceId === piece.id
@@ -1148,7 +1150,7 @@ function slideJointFromSeated(
     const clipId = shaftMine ? theirPort.id : myPort.id
     const contact = contactOnRod(connector, connCatalog, clipId)
     if (!contact) continue
-    joints.push({ rod, contact })
+    joints.push({ rod, connector, contact })
   }
   if (!joints.length) return null
 
@@ -1173,9 +1175,13 @@ function slideJointFromSeated(
     }
   }
   if (minDelta > maxDelta) return null
+  const anchorIds = slidingRod
+    ? [...new Set(joints.map((j) => j.connector.id))]
+    : [rod.id]
   return {
     pieceId: piece.id,
     rodId: rod.id,
+    anchorIds,
     origin: [origin.x, origin.y, origin.z],
     dir: [dir.x, dir.y, dir.z],
     minDelta,
@@ -1189,6 +1195,146 @@ export function slideJointForPiece(
   connections: Connection[],
 ): SlideJoint | null {
   return slideJointFromSeated(piece, pieces, mergeGeometricConnections(pieces, connections))
+}
+
+/**
+ * Pieces that should translate with a slide: the grabbed piece plus dangling
+ * attachments that are not rail anchors and are not tied into the rest of the build.
+ */
+export function slideMovingIds(
+  rootId: string,
+  anchorIds: string[],
+  pieces: PlacedPiece[],
+  connections: Connection[],
+): string[] {
+  const seated = mergeGeometricConnections(pieces, connections)
+  const anchors = new Set(anchorIds)
+  const neighbors = new Map<string, Set<string>>()
+  for (const p of pieces) neighbors.set(p.id, new Set())
+  for (const c of seated) {
+    neighbors.get(c.aPieceId)?.add(c.bPieceId)
+    neighbors.get(c.bPieceId)?.add(c.aPieceId)
+  }
+
+  const moving = new Set<string>([rootId])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const id of [...moving]) {
+      for (const n of neighbors.get(id) ?? []) {
+        if (anchors.has(n) || moving.has(n)) continue
+        const outs = [...(neighbors.get(n) ?? [])]
+        // Only ride along when every bond is already in the moving cluster
+        // (or the edge we just walked). Anything else anchors it in place.
+        if (outs.every((o) => o === id || moving.has(o))) {
+          moving.add(n)
+          grew = true
+        }
+      }
+    }
+  }
+  return [...moving]
+}
+
+const SLIDE_SNAP_LATERAL = 0.14
+/** How far along the rail we’ll pull to seat a nearby mate. */
+const SLIDE_SNAP_PULL = 0.85
+
+/**
+ * Nudge a slide delta so free ports on the moving cluster seat on nearby
+ * fixed ports (and coplanar gear meshes), when the fit is along the rail.
+ */
+export function slideSnapDelta(
+  movingIds: string[],
+  pieces: PlacedPiece[],
+  connections: Connection[],
+  dir: THREE.Vector3,
+  proposedDelta: number,
+  minDelta: number,
+  maxDelta: number,
+  startPositions: Map<string, [number, number, number]>,
+): number {
+  const axis = dir.clone().normalize()
+  const moving = new Set(movingIds)
+  const seated = mergeGeometricConnections(pieces, connections)
+  const occupied = occupiedPortKeys(seated)
+
+  const proposedPieces = pieces.map((p) => {
+    if (!moving.has(p.id)) return p
+    const start = startPositions.get(p.id) ?? p.position
+    return {
+      ...p,
+      position: [
+        start[0] + axis.x * proposedDelta,
+        start[1] + axis.y * proposedDelta,
+        start[2] + axis.z * proposedDelta,
+      ] as [number, number, number],
+    }
+  })
+
+  const movingPorts = allWorldPorts(proposedPieces, occupied).filter(
+    (p) => moving.has(p.pieceId) && !p.occupied,
+  )
+  const fixedPorts = allWorldPorts(proposedPieces, occupied).filter(
+    (p) => !moving.has(p.pieceId) && !p.occupied,
+  )
+
+  let bestDelta = proposedDelta
+  let bestScore = SLIDE_SNAP_PULL
+
+  for (const a of movingPorts) {
+    for (const b of fixedPorts) {
+      if (!worldPortsCompatible(a, b)) continue
+      if (!worldDirectionsMatch(a, b)) continue
+
+      if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') {
+        const pa = proposedPieces.find((p) => p.id === a.pieceId)
+        const pb = proposedPieces.find((p) => p.id === b.pieceId)
+        if (!pa || !pb) continue
+        // Slide until gear planes coincide (radial pitch already set by rods).
+        const qa = quatFromTuple(pa.rotation)
+        const axisA = new THREE.Vector3(0, 0, 1).applyQuaternion(qa).normalize()
+        if (Math.abs(axisA.dot(axis)) < 0.85) continue
+        const start = startPositions.get(a.pieceId)
+        if (!start) continue
+        const startPos = new THREE.Vector3(...start)
+        const other = new THREE.Vector3(...pb.position)
+        const needed = other.clone().sub(startPos).dot(axis)
+        if (needed < minDelta - 1e-6 || needed > maxDelta + 1e-6) continue
+        const radial = other
+          .clone()
+          .sub(startPos.clone().addScaledVector(axis, needed))
+          .length()
+        const ca = getCatalogPiece(pa.catalogId)
+        const cb = getCatalogPiece(pb.catalogId)
+        if (!ca || !cb) continue
+        const ideal = gearMeshCenterDistance(ca, cb)
+        if (Math.abs(radial - ideal) > GEAR_MESH_TOLERANCE + 0.05) continue
+        const score = Math.abs(needed - proposedDelta)
+        if (score < bestScore) {
+          bestScore = score
+          bestDelta = THREE.MathUtils.clamp(needed, minDelta, maxDelta)
+        }
+        continue
+      }
+
+      const pa = new THREE.Vector3(...a.position)
+      const pb = new THREE.Vector3(...b.position)
+      const delta = pb.clone().sub(pa)
+      const along = delta.dot(axis)
+      const lateral = delta.clone().addScaledVector(axis, -along).length()
+      if (lateral > SLIDE_SNAP_LATERAL) continue
+      const needed = proposedDelta + along
+      if (needed < minDelta - 1e-6 || needed > maxDelta + 1e-6) continue
+      const score = Math.abs(along)
+      if (score < bestScore) {
+        bestScore = score
+        bestDelta = THREE.MathUtils.clamp(needed, minDelta, maxDelta)
+      }
+    }
+  }
+
+  return bestDelta
 }
 
 export function canSlidePiece(
@@ -1474,6 +1620,11 @@ export function mergeGeometricConnections(
   }
   pairs.sort((x, y) => x.dist - y.dist)
   const used = new Set(occupied)
+  const existing = new Set(
+    connections.map(
+      (c) => `${c.aPieceId}:${c.aPortId}|${c.bPieceId}:${c.bPortId}`,
+    ),
+  )
   const extra: Connection[] = []
   for (const { a, b } of pairs) {
     const ka = portKey(a.pieceId, a.portId)
@@ -1481,14 +1632,19 @@ export function mergeGeometricConnections(
     const multiA = a.portId === 'shaft' || a.portId === 'mesh'
     const multiB = b.portId === 'shaft' || b.portId === 'mesh'
     if ((!multiA && used.has(ka)) || (!multiB && used.has(kb))) continue
+    const keyAb = `${a.pieceId}:${a.portId}|${b.pieceId}:${b.portId}`
+    const keyBa = `${b.pieceId}:${b.portId}|${a.pieceId}:${a.portId}`
+    if (existing.has(keyAb) || existing.has(keyBa)) continue
     if (!multiA) used.add(ka)
     if (!multiB) used.add(kb)
-    extra.push({
+    const conn = {
       aPieceId: a.pieceId,
       aPortId: a.portId,
       bPieceId: b.pieceId,
       bPortId: b.portId,
-    })
+    }
+    extra.push(conn)
+    existing.add(keyAb)
   }
   return extra.length ? [...connections, ...extra] : connections
 }
