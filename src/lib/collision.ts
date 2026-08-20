@@ -15,6 +15,7 @@ import {
   gearsMeshing,
   isCenterSocket,
   mergeGeometricConnections,
+  piecesSeatedOnRod,
   quatFromTuple,
   rodAxis,
 } from './math'
@@ -299,6 +300,10 @@ function skipPieceIds(
   for (const c of mergeGeometricConnections(scene, conns)) {
     if (c.aPieceId === candidate.id) skip.add(c.bPieceId)
     if (c.bPieceId === candidate.id) skip.add(c.aPieceId)
+  }
+  const rodCat = getCatalogPiece(candidate.catalogId)
+  if (rodCat?.category === 'rods') {
+    for (const id of piecesSeatedOnRod(candidate, others)) skip.add(id)
   }
   return skip
 }

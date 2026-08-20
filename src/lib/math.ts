@@ -1667,6 +1667,59 @@ function distPointToAxis(
   return o.addScaledVector(d, t).distanceTo(p)
 }
 
+/** C-clip mouth around a rod — tighter than the 0.21 gap between adjacent 45° clips. */
+const CLIP_JAW_RADIAL = SOCKET_RADIUS * 0.52
+/** Allow a spanning rod to be slightly long/short and still seat in the far clip. */
+const ROD_END_SEAT_ALONG = 0.2
+
+function clipHoldsRodEnd(clip: WorldPort, rodEnd: WorldPort): boolean {
+  if (!isClipSocketPort(clip) || rodEnd.kind !== 'rod-end') return false
+  const endDir = new THREE.Vector3(...rodEnd.direction).normalize()
+  const clipDir = new THREE.Vector3(...clip.direction).normalize()
+  if (endDir.dot(clipDir) > -0.72) return false
+  const end = new THREE.Vector3(...rodEnd.position)
+  const socket = new THREE.Vector3(...clip.position)
+  const delta = socket.clone().sub(end)
+  const along = delta.dot(endDir)
+  const radial = delta.clone().addScaledVector(endDir, -along).length()
+  return radial < CLIP_JAW_RADIAL && Math.abs(along) < ROD_END_SEAT_ALONG
+}
+
+function clipHoldsRodShaft(clip: WorldPort, rod: PlacedPiece): boolean {
+  if (!isClipSocketPort(clip)) return false
+  const { origin, dir, half } = rodAxis(rod)
+  const clipDir = new THREE.Vector3(...clip.direction).normalize()
+  if (Math.abs(clipDir.dot(dir)) > 0.5) return false
+  const socket = new THREE.Vector3(...clip.position)
+  const t = socket.clone().sub(origin).dot(dir)
+  const radial = distPointToAxis(clip.position, [origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z])
+  return radial < CLIP_JAW_RADIAL && Math.abs(t) <= half - SHAFT_END_INSET + 0.04
+}
+
+/** Connectors (and clips) that actually hold this rod — both ends, not only the hovered snap. */
+export function piecesSeatedOnRod(rod: PlacedPiece, others: PlacedPiece[]): Set<string> {
+  const ids = new Set<string>()
+  const rodCat = getCatalogPiece(rod.catalogId)
+  if (!rodCat || rodCat.category !== 'rods') return ids
+  const ends = rodCat.ports
+    .filter((p) => p.kind === 'rod-end')
+    .map((p) => worldPort(rod, p, false))
+  for (const other of others) {
+    if (other.id === rod.id) continue
+    const cat = getCatalogPiece(other.catalogId)
+    if (!cat || !isConnectorLike(cat)) continue
+    for (const port of cat.ports) {
+      if (port.kind !== 'socket' || isThroughHoleSocket(port.id) || port.id === 'hole') continue
+      const clip = worldPort(other, port, false)
+      if (ends.some((end) => clipHoldsRodEnd(clip, end)) || clipHoldsRodShaft(clip, rod)) {
+        ids.add(other.id)
+        break
+      }
+    }
+  }
+  return ids
+}
+
 function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
   if (a.kind === 'interlock' && b.kind === 'interlock') return true
   if (a.kind === 'gear-mesh' && b.kind === 'gear-mesh') return true
@@ -1739,6 +1792,17 @@ export function mergeGeometricConnections(
         continue
       }
       const dist = pairDistance(a, b)
+      const rodClip =
+        (a.kind === 'rod-end' && isClipSocketPort(b)) || (b.kind === 'rod-end' && isClipSocketPort(a))
+      const seated = rodClip
+        ? a.kind === 'rod-end'
+          ? clipHoldsRodEnd(b, a)
+          : clipHoldsRodEnd(a, b)
+        : false
+      if (seated) {
+        pairs.push({ a, b, dist })
+        continue
+      }
       if (dist > COUPLE_DIST) continue
       if (!worldDirectionsMatch(a, b)) continue
       pairs.push({ a, b, dist })
