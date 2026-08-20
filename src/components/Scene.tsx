@@ -3,7 +3,7 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { ContactShadows, Grid, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { getCatalogPiece } from '../data/catalog'
+import { getCatalogPiece, isConnectorLike, isShaftSleeve } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
 import {
@@ -81,7 +81,7 @@ function PlacedPieces() {
               const dy = e.clientY - start.y
               if (dx * dx + dy * dy > 100) return
               e.stopPropagation()
-              if (catalog.category === 'connectors') {
+              if (isConnectorLike(catalog)) {
                 rotateConnector(piece.id, 'in-plane')
                 return
               }
@@ -155,12 +155,13 @@ function SnapHints() {
 
   const catalog = selectedCatalogId ? getCatalogPiece(selectedCatalogId) : undefined
   const placingRod = catalog?.category === 'rods'
-  const placingConnector = catalog?.category === 'connectors'
+  const placingConnector = catalog ? isConnectorLike(catalog) : false
+  const placingSleeve = catalog ? isShaftSleeve(catalog) : false
   const placingSlotted = catalog ? hasInterlock(catalog) : false
 
   const freePorts = useMemo(() => {
     if (tool !== 'place' || !selectedCatalogId) return []
-    if (perpSnap && placingConnector) {
+    if ((perpSnap && placingConnector) || placingSleeve) {
       const cursor = rodAim?.targetPortId === 'shaft'
         ? new THREE.Vector3(...rodAim.tip)
         : ghost
@@ -172,10 +173,20 @@ function SnapHints() {
     }
     const occupied = occupancyKeys(pieces, connections)
     return allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
-  }, [pieces, connections, tool, selectedCatalogId, perpSnap, placingConnector, rodAim, ghost])
+  }, [
+    pieces,
+    connections,
+    tool,
+    selectedCatalogId,
+    perpSnap,
+    placingConnector,
+    placingSleeve,
+    rodAim,
+    ghost,
+  ])
 
   const hints = freePorts.filter((p) => {
-    if (p.kind === 'shaft') return perpSnap && placingConnector
+    if (p.kind === 'shaft') return (perpSnap && placingConnector) || placingSleeve
     if (placingRod) return p.kind === 'socket'
     if (placingSlotted) return p.kind === 'interlock' || p.kind === 'rod-end'
     if (p.kind === 'interlock') return false
