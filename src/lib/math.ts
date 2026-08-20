@@ -7,7 +7,7 @@ import type {
   PortDef,
   WorldPort,
 } from '../types/knex'
-import { getCatalogPiece } from '../data/catalog'
+import { getCatalogPiece, SOCKET_RADIUS } from '../data/catalog'
 
 /** Max cursor distance to a free port for snap to engage. */
 export const SNAP_DISTANCE = 1.75
@@ -135,28 +135,86 @@ export function isCenterSocket(portId: string): boolean {
   return portId.startsWith('center')
 }
 
-/** Straight 2-clip bar — interlock as a horizontal cross, not an Rx(90) plate nest. */
-function isBarConnector(catalog?: CatalogPiece): boolean {
-  if (!catalog) return false
-  const ySockets = catalog.ports.filter(
-    (p) => p.kind === 'socket' && !isCenterSocket(p.id) && Math.abs(p.direction[1]) < 0.2,
-  )
-  return ySockets.length <= 2
+export function hasInterlock(catalog: CatalogPiece): boolean {
+  return catalog.ports.some((p) => p.kind === 'interlock')
+}
+
+/** World position of the snap orb — slot orbs sit at the open 3D slot, not the hub. */
+export function portOrbPosition(port: WorldPort): THREE.Vector3 {
+  const pos = new THREE.Vector3(...port.position)
+  if (port.kind !== 'interlock') return pos
+  return pos.add(new THREE.Vector3(...port.slot).normalize().multiplyScalar(SOCKET_RADIUS))
+}
+
+function poseFromRotation(
+  localPort: PortDef,
+  target: WorldPort,
+  rotation: THREE.Quaternion,
+): { position: [number, number, number]; rotation: [number, number, number, number] } {
+  const localPos = new THREE.Vector3(...localPort.position).applyQuaternion(rotation)
+  const targetPos = new THREE.Vector3(...target.position)
+  const position = targetPos.sub(localPos)
+  return {
+    position: [position.x, position.y, position.z],
+    rotation: tupleFromQuat(rotation),
+  }
+}
+
+function twistSlotOnto(
+  rotation: THREE.Quaternion,
+  ghostHub: THREE.Vector3,
+  desiredSlot: THREE.Vector3,
+) {
+  const localSlot = new THREE.Vector3(0, 0, 1).applyQuaternion(rotation)
+  const slotDot = localSlot.dot(desiredSlot)
+  if (slotDot > 0.98) return
+  if (slotDot < -0.98) {
+    rotation.premultiply(new THREE.Quaternion().setFromAxisAngle(ghostHub, Math.PI))
+    return
+  }
+  rotation.premultiply(new THREE.Quaternion().setFromUnitVectors(localSlot, desiredSlot))
+}
+
+function interlockGhostHub(target: WorldPort, hubSign: 1 | -1): THREE.Vector3 {
+  const targetHub = new THREE.Vector3(...target.direction).normalize()
+  const targetSlot = new THREE.Vector3(...target.slot).normalize()
+  const ghostHub = new THREE.Vector3().crossVectors(targetHub, targetSlot).normalize()
+  if (ghostHub.lengthSq() < 1e-6) {
+    ghostHub
+      .crossVectors(
+        targetHub,
+        Math.abs(targetHub.y) < 0.85 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0),
+      )
+      .normalize()
+  }
+  return ghostHub.multiplyScalar(hubSign)
+}
+
+function alignInterlock(
+  localPort: PortDef,
+  target: WorldPort,
+  hubSign: 1 | -1,
+  slotSign: 1 | -1,
+): { position: [number, number, number]; rotation: [number, number, number, number] } {
+  const ghostHub = interlockGhostHub(target, hubSign)
+  const desiredSlot = new THREE.Vector3(...target.slot).normalize().multiplyScalar(slotSign)
+  const localHub = new THREE.Vector3(...localPort.direction).normalize()
+  const rotation = new THREE.Quaternion().setFromUnitVectors(localHub, ghostHub)
+  twistSlotOnto(rotation, ghostHub, desiredSlot)
+  return poseFromRotation(localPort, target, rotation)
 }
 
 /**
  * Orient a piece so one of its ports matches a target world port
  * (opposite direction, same position after placement).
  *
- * Interlock ports (connector center slots) join at 90°.
- * Half/full plates nest so the incoming hub goes through the target slot
- * (same Rx(90) recipe as the grey-and-blue combo). A 2-clip bar stays
- * a horizontal cross with flush bottoms.
+ * Interlock ports (the one 3D slot at local +Z) join slot-into-slot at 90°:
+ * incoming hub = targetHub × targetSlot, slots stay aligned. Same recipe
+ * for grey/grey, grey/blue, blue/blue, and the 2-clip bar.
  */
 export function alignPieceToPort(
   localPort: PortDef,
   target: WorldPort,
-  catalog?: CatalogPiece,
 ): { position: [number, number, number]; rotation: [number, number, number, number] } {
   if (localPort.kind === 'shaft' && isCenterSocket(target.portId)) {
     const localDir = new THREE.Vector3(...localPort.direction).normalize()
@@ -169,43 +227,7 @@ export function alignPieceToPort(
     }
   }
   if (localPort.kind === 'interlock' && target.kind === 'interlock') {
-    const targetHub = new THREE.Vector3(...target.direction).normalize()
-    const targetSlot = new THREE.Vector3(...target.slot).normalize()
-    const ghostHub = new THREE.Vector3()
-    const desiredSlot = new THREE.Vector3()
-    if (isBarConnector(catalog)) {
-      ghostHub.crossVectors(targetHub, targetSlot).normalize()
-      if (ghostHub.lengthSq() < 1e-6) {
-        ghostHub
-          .crossVectors(
-            targetHub,
-            Math.abs(targetHub.y) < 0.85 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0),
-          )
-          .normalize()
-      }
-      desiredSlot.copy(targetSlot)
-    } else {
-      ghostHub.copy(targetSlot)
-      desiredSlot.copy(targetHub).multiplyScalar(-1)
-    }
-    const localHub = new THREE.Vector3(...localPort.direction).normalize()
-    const rotation = new THREE.Quaternion().setFromUnitVectors(localHub, ghostHub)
-    const localSlot = new THREE.Vector3(0, 0, 1).applyQuaternion(rotation)
-    const slotDot = localSlot.dot(desiredSlot)
-    if (Math.abs(slotDot) < 0.98) {
-      const alignedSlot = slotDot < 0 ? desiredSlot.clone().multiplyScalar(-1) : desiredSlot.clone()
-      const twist = new THREE.Quaternion().setFromUnitVectors(localSlot, alignedSlot)
-      rotation.premultiply(twist)
-    } else if (slotDot < 0) {
-      rotation.premultiply(new THREE.Quaternion().setFromAxisAngle(ghostHub, Math.PI))
-    }
-    const localPos = new THREE.Vector3(...localPort.position).applyQuaternion(rotation)
-    const targetPos = new THREE.Vector3(...target.position)
-    const position = targetPos.sub(localPos)
-    return {
-      position: [position.x, position.y, position.z],
-      rotation: tupleFromQuat(rotation),
-    }
+    return alignInterlock(localPort, target, 1, 1)
   }
 
   const localDir = new THREE.Vector3(...localPort.direction).normalize()
@@ -268,10 +290,12 @@ export function findBestSnap(
         (localPort.kind === 'interlock' && target.kind === 'interlock')
       if (!compatible) continue
 
-      const pose = alignPieceToPort(localPort, target, catalog)
-      // Score by proximity to the target port — not the piece center —
-      // so long rods still snap when the cursor is near a socket.
-      const portWorld = new THREE.Vector3(...target.position)
+      const pose =
+        localPort.kind === 'interlock' && target.kind === 'interlock'
+          ? snapInterlockAimed(catalog, target)
+          : alignPieceToPort(localPort, target)
+      if (!pose) continue
+      const portWorld = portOrbPosition(target)
       const score = portWorld.distanceTo(cursor)
 
       if (score > SNAP_DISTANCE) continue
@@ -373,6 +397,186 @@ export function findRodSnapOnPointer(
   const hovered = nearestSocketOnPointer(freePorts, view)
   if (!hovered) return null
   return findBestSnap(catalog, [hovered], new THREE.Vector3(...hovered.position))
+}
+
+export interface InterlockAimPose {
+  position: [number, number, number]
+  rotation: [number, number, number, number]
+  localPortId: string
+  /** World direction the incoming plate’s arc faces (perpendicular to the slot). */
+  fan: [number, number, number]
+}
+
+function interlockFan(
+  rotation: [number, number, number, number],
+  slotDir: THREE.Vector3,
+): THREE.Vector3 {
+  const q = quatFromTuple(rotation)
+  const fan = new THREE.Vector3(1, 0, 0).applyQuaternion(q)
+  fan.sub(slotDir.clone().multiplyScalar(fan.dot(slotDir)))
+  if (fan.lengthSq() < 1e-6) {
+    fan.set(0, 1, 0).applyQuaternion(q)
+    fan.sub(slotDir.clone().multiplyScalar(fan.dot(slotDir)))
+  }
+  return fan.normalize()
+}
+
+/** Valid 90° slot-in-slot poses for a slotted connector on a free slot. */
+export function interlockAimPoses(
+  catalog: CatalogPiece,
+  target: WorldPort,
+): InterlockAimPose[] {
+  if (target.kind !== 'interlock' || target.occupied) return []
+  const local = catalog.ports.find((p) => p.kind === 'interlock')
+  if (!local) return []
+  const slotDir = new THREE.Vector3(...target.slot).normalize()
+  const seen = new Set<string>()
+  const poses: InterlockAimPose[] = []
+  for (const hubSign of [1, -1] as const) {
+    for (const slotSign of [1, -1] as const) {
+      const pose = alignInterlock(local, target, hubSign, slotSign)
+      const key = geometryKey(pose.position, pose.rotation)
+      if (seen.has(key)) continue
+      seen.add(key)
+      const fan = interlockFan(pose.rotation, slotDir)
+      poses.push({
+        position: pose.position,
+        rotation: canonicalRotation(pose.rotation),
+        localPortId: local.id,
+        fan: [fan.x, fan.y, fan.z],
+      })
+    }
+  }
+  return poses
+}
+
+export function pickInterlockAimPose(
+  poses: InterlockAimPose[],
+  target: WorldPort,
+  aimPoint: THREE.Vector3,
+): number {
+  if (poses.length === 0) return 0
+  const slotPos = portOrbPosition(target)
+  const slotDir = new THREE.Vector3(...target.slot).normalize()
+  const aim = aimPoint.clone().sub(slotPos)
+  aim.sub(slotDir.clone().multiplyScalar(aim.dot(slotDir)))
+  if (aim.lengthSq() < 0.018) {
+    let best = 0
+    let bestY = Number.NEGATIVE_INFINITY
+    poses.forEach((pose, index) => {
+      if (pose.fan[1] > bestY) {
+        bestY = pose.fan[1]
+        best = index
+      }
+    })
+    return best
+  }
+  aim.normalize()
+  let best = 0
+  let bestDot = Number.NEGATIVE_INFINITY
+  poses.forEach((pose, index) => {
+    const dot = aim.x * pose.fan[0] + aim.y * pose.fan[1] + aim.z * pose.fan[2]
+    if (dot > bestDot) {
+      bestDot = dot
+      best = index
+    }
+  })
+  return best
+}
+
+function nearestInterlockAlongRay(ports: WorldPort[], ray: THREE.Ray): WorldPort | null {
+  let best: WorldPort | null = null
+  let bestScore = Number.POSITIVE_INFINITY
+  const closest = new THREE.Vector3()
+  for (const port of ports) {
+    if (port.kind !== 'interlock' || port.occupied) continue
+    const point = portOrbPosition(port)
+    ray.closestPointToPoint(point, closest)
+    const along = closest.clone().sub(ray.origin).dot(ray.direction)
+    if (along < 0.08) continue
+    const perp = closest.distanceTo(point)
+    if (perp > 0.2) continue
+    const score = perp + along * 0.002
+    if (score < bestScore) {
+      bestScore = score
+      best = port
+    }
+  }
+  return best
+}
+
+/** Magenta slot orb under the pointer. */
+export function nearestInterlockOnPointer(
+  ports: WorldPort[],
+  view: PointerView,
+): WorldPort | null {
+  let best: WorldPort | null = null
+  let bestDist = Number.POSITIVE_INFINITY
+  for (const port of ports) {
+    if (port.kind !== 'interlock' || port.occupied) continue
+    const world = portOrbPosition(port)
+    const ndc = world.clone().project(view.camera)
+    if (ndc.z < -1 || ndc.z > 1) continue
+    const dist = Math.hypot(view.ndc.x - ndc.x, view.ndc.y - ndc.y)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = port
+    }
+  }
+  if (!best) return nearestInterlockAlongRay(ports, view.ray)
+  const pos = portOrbPosition(best)
+  const posNdc = pos.clone().project(view.camera)
+  const edgeNdc = pos.clone().add(new THREE.Vector3(ORB_HIT * 1.2, 0, 0)).project(view.camera)
+  const hitR = Math.max(0.05, Math.hypot(edgeNdc.x - posNdc.x, edgeNdc.y - posNdc.y) * 1.4)
+  if (bestDist <= hitR) return best
+  return nearestInterlockAlongRay(ports, view.ray)
+}
+
+export function aimPointOnSlotPlane(
+  target: WorldPort,
+  ray: THREE.Ray,
+): THREE.Vector3 {
+  const slotPos = portOrbPosition(target)
+  const slotDir = new THREE.Vector3(...target.slot).normalize()
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(slotDir, slotPos)
+  const hit = new THREE.Vector3()
+  if (ray.intersectPlane(plane, hit)) return hit
+  ray.closestPointToPoint(slotPos, hit)
+  return hit
+}
+
+/** Snap a slotted connector to a known slot, aimed by drag if given. */
+export function snapInterlockAimed(
+  catalog: CatalogPiece,
+  target: WorldPort,
+  aimPoint?: THREE.Vector3,
+): ReturnType<typeof findBestSnap> {
+  const poses = interlockAimPoses(catalog, target)
+  if (!poses.length) return null
+  const index = pickInterlockAimPose(
+    poses,
+    target,
+    aimPoint ?? portOrbPosition(target).add(new THREE.Vector3(0, 1, 0)),
+  )
+  const pose = poses[index]
+  return {
+    ...pose,
+    target,
+    distance: 0,
+  }
+}
+
+/** Snap a slotted connector to the magenta slot orb, aimed by drag if given. */
+export function findInterlockSnapOnPointer(
+  catalog: CatalogPiece,
+  freePorts: WorldPort[],
+  view: PointerView,
+  aimPoint?: THREE.Vector3,
+): ReturnType<typeof findBestSnap> {
+  if (!hasInterlock(catalog)) return null
+  const hovered = nearestInterlockOnPointer(freePorts, view)
+  if (!hovered) return null
+  return snapInterlockAimed(catalog, hovered, aimPoint)
 }
 
 const CLIP_GRIP = 0.34

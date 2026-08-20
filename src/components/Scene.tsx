@@ -6,7 +6,16 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { getCatalogPiece } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
-import { allWorldPorts, isCenterSocket, occupiedPortKeys, pickConnectorAimPose, type PointerView } from '../lib/math'
+import {
+  allWorldPorts,
+  hasInterlock,
+  isCenterSocket,
+  nearestInterlockOnPointer,
+  occupiedPortKeys,
+  pickConnectorAimPose,
+  portOrbPosition,
+  type PointerView,
+} from '../lib/math'
 import {
   aimCameraAt,
   captureCameraShot,
@@ -142,6 +151,7 @@ function SnapHints() {
 
   const catalog = selectedCatalogId ? getCatalogPiece(selectedCatalogId) : undefined
   const placingRod = catalog?.category === 'rods'
+  const placingSlotted = catalog ? hasInterlock(catalog) : false
 
   const freePorts = useMemo(() => {
     if (tool !== 'place' || !selectedCatalogId) return []
@@ -152,6 +162,8 @@ function SnapHints() {
   const hints = freePorts.filter((p) => {
     if (p.kind === 'shaft') return false
     if (placingRod) return p.kind === 'socket'
+    if (placingSlotted) return p.kind === 'interlock' || p.kind === 'rod-end'
+    if (p.kind === 'interlock') return false
     return true
   })
   if (!hints.length) return null
@@ -164,10 +176,11 @@ function SnapHints() {
         const key = `${port.pieceId}:${port.portId}`
         const hovered = key === hoverKey
         const center = port.kind === 'socket' && isCenterSocket(port.portId)
+        const slot = port.kind === 'interlock'
         const color = hovered
           ? '#69db7c'
-          : port.kind === 'interlock'
-            ? '#ff922b'
+          : slot
+            ? '#e64980'
             : center
               ? '#c0eb75'
               : port.kind === 'socket'
@@ -175,20 +188,22 @@ function SnapHints() {
                 : '#66d9e8'
         const emissive = hovered
           ? '#51cf66'
-          : port.kind === 'interlock'
-            ? '#fd7e14'
+          : slot
+            ? '#d6336c'
             : center
               ? '#82c91e'
               : port.kind === 'socket'
                 ? '#fcc419'
                 : '#22b8cf'
+        const radius = hovered ? 0.13 : slot ? 0.12 : center ? 0.08 : 0.1
+        const pos = portOrbPosition(port)
         return (
-          <mesh key={key} position={port.position} renderOrder={20}>
-            <sphereGeometry args={[hovered ? 0.12 : center ? 0.08 : 0.1, 16, 16]} />
+          <mesh key={key} position={pos} renderOrder={20}>
+            <sphereGeometry args={[radius, 16, 16]} />
             <meshStandardMaterial
               color={color}
               emissive={emissive}
-              emissiveIntensity={hovered ? 1.1 : 0.65}
+              emissiveIntensity={hovered ? 1.1 : slot ? 0.85 : 0.65}
               transparent
               opacity={hovered ? 1 : 0.92}
               depthTest={false}
@@ -252,7 +267,7 @@ function CursorTracker() {
 
   useFrame(() => {
     const rodAim = useBuilderStore.getState().rodAim
-    if (rodAim?.dragging || useBuilderStore.getState().rodSteer) return
+    if (rodAim?.dragging || useBuilderStore.getState().rodSteer || useBuilderStore.getState().slotSteer) return
     if (tool !== 'place') return
     raycaster.setFromCamera(pointer, camera)
     const ray = raycaster.ray
@@ -516,14 +531,74 @@ function RodSteerGestures() {
   return null
 }
 
+function SlotSteerGestures() {
+  const { camera, gl } = useThree()
+  const dragging = useRef(false)
+
+  useEffect(() => {
+    const canvas = gl.domElement
+
+    const onDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.pointerType === 'mouse') return
+      const state = useBuilderStore.getState()
+      if (state.tool !== 'place' || !state.selectedCatalogId || state.rodAim) return
+      const catalog = getCatalogPiece(state.selectedCatalogId)
+      if (!catalog || !hasInterlock(catalog)) return
+      const view = pointerView(event, canvas, camera)
+      const occupied = occupiedPortKeys(state.connections)
+      const freePorts = allWorldPorts(state.pieces, occupied).filter((p) => !p.occupied)
+      const hovered = nearestInterlockOnPointer(freePorts, view)
+      if (!hovered) return
+      dragging.current = true
+      state.beginSlotSteer(hovered)
+      state.steerSlot(view)
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+    }
+
+    const onMove = (event: PointerEvent) => {
+      if (!dragging.current) return
+      const state = useBuilderStore.getState()
+      if (!state.slotSteer) return
+      state.steerSlot(pointerView(event, canvas, camera))
+    }
+
+    const onUp = () => {
+      if (!dragging.current) return
+      dragging.current = false
+      const state = useBuilderStore.getState()
+      if (state.slotSteer && state.ghost?.snap) {
+        skipPlaceClick = true
+        state.placeGhost()
+      }
+      state.endSlotSteer()
+    }
+
+    canvas.addEventListener('pointerdown', onDown, { capture: true })
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      canvas.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+  }, [camera, gl])
+
+  return null
+}
+
 export function Scene() {
   const cameraNavMode = useBuilderStore((s) => s.cameraNavMode)
   const rodAim = useBuilderStore((s) => s.rodAim)
+  const slotSteer = useBuilderStore((s) => s.slotSteer)
   const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
   const tool = useBuilderStore((s) => s.tool)
   const placingRod =
     tool === 'place' && getCatalogPiece(selectedCatalogId ?? '')?.category === 'rods'
-  const lockView = Boolean(rodAim) || placingRod
+  const lockView = Boolean(rodAim) || Boolean(slotSteer) || placingRod
   const controlsRef = useRef<OrbitControlsImpl>(null)
   const fly = cameraNavMode === 'fly' && !lockView
 
@@ -557,6 +632,7 @@ export function Scene() {
       <RodAimCamera />
       <RodAimGestures />
       <RodSteerGestures />
+      <SlotSteerGestures />
       <PlacementPlane />
       <PlacedPieces />
       <GhostPiece />
