@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { CATALOG } from '../data/catalog'
+import { CATALOG, isPreassembledHub } from '../data/catalog'
 import type { PieceCategory } from '../types/knex'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceIcon } from './PieceIcon'
@@ -41,7 +41,10 @@ export function Sidebar() {
   const toggleMenu = useBuilderStore((s) => s.toggleMenu)
 
   const items = useMemo(
-    () => ORDER.flatMap((category) => CATALOG.filter((p) => p.category === category)),
+    () =>
+      ORDER.flatMap((category) =>
+        CATALOG.filter((p) => p.category === category && !isPreassembledHub(p)),
+      ),
     [],
   )
 
