@@ -5,11 +5,18 @@ export type PieceCategory =
   | 'spacers'
   | 'wheels'
   | 'gears'
+  | 'motors'
   | 'panels'
   | 'chain'
 
-/** rod-end ↔ socket; interlock ↔ interlock; gear-mesh ↔ gear-mesh (teeth) */
-export type PortKind = 'rod-end' | 'socket' | 'interlock' | 'shaft' | 'gear-mesh'
+/** rod-end ↔ socket; interlock ↔ interlock; gear-mesh ↔ gear-mesh; connector-lug ↔ connector hub */
+export type PortKind =
+  | 'rod-end'
+  | 'socket'
+  | 'interlock'
+  | 'shaft'
+  | 'gear-mesh'
+  | 'connector-lug'
 
 export type ConnectorVariant =
   | 'plate' // flat non-slotted connector
@@ -35,6 +42,13 @@ export type ConnectorVariant =
   | 'wheel-race'
   | 'wheel-narrow'
   | 'wheel-tire'
+  | 'motor-enclosed'
+  | 'motor-tethered'
+  | 'motor-2speed'
+  | 'motor-12v'
+  | 'motor-spring'
+  | 'motor-robotics'
+  | 'motor-brick'
 
 export interface PortDef {
   id: string
@@ -66,6 +80,12 @@ export interface CatalogPiece {
   hubRadius?: number
   /** Spoke count for spoked wheels */
   spokes?: number
+  /** Nominal motor output RPM (do not invent when unknown) */
+  motorRpm?: number
+  /** Nominal motor supply voltage */
+  motorVolts?: number
+  /** Housing half-extents [x, y, z] in scene units when not a simple disk */
+  boxSize?: [number, number, number]
   /** Flexible rod (same snap as rigid; visual bend later) */
   flexi?: boolean
   /** Visual / assembly style */

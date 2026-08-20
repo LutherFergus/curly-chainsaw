@@ -296,6 +296,49 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
     )
   }
 
+  if (piece.category === 'motors') {
+    const worm = piece.variant === 'motor-12v'
+    const brick = piece.variant === 'motor-brick'
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <rect x="16" y="18" width="32" height="28" rx="3" fill={color} />
+        <rect x="20" y="40" width="24" height="6" rx="1" fill={accent} opacity="0.85" />
+        <circle cx="32" cy="32" r="5" fill="#1a1b1e" opacity="0.45" />
+        <circle cx="32" cy="32" r="2.5" fill={accent} />
+        {/* Side lugs */}
+        {!worm && !brick && (
+          <>
+            <rect x="12" y="28" width="5" height="8" rx="1" fill={accent} />
+            <rect x="47" y="28" width="5" height="8" rx="1" fill={accent} />
+          </>
+        )}
+        {worm && (
+          <g stroke={accent} strokeWidth="2" fill="none">
+            <path d="M48 24 q6 4 0 8 q6 4 0 8" />
+          </g>
+        )}
+        {brick && (
+          <>
+            <rect x="8" y="30" width="8" height="4" rx="1" fill={accent} />
+            <rect x="48" y="30" width="8" height="4" rx="1" fill={accent} />
+          </>
+        )}
+        {piece.motorRpm != null && (
+          <text
+            x="32"
+            y="14"
+            textAnchor="middle"
+            fill={accent}
+            fontSize="7"
+            fontFamily="ui-sans-serif, system-ui"
+          >
+            {piece.motorRpm}
+          </text>
+        )}
+      </svg>
+    )
+  }
+
   if (piece.category === 'gears') {
     const teeth = Math.min(piece.teeth ?? 12, 18)
     const tip = 26

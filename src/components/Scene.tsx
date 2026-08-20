@@ -210,6 +210,7 @@ function SnapHints() {
   const hints = freePorts.filter((p) => {
     if (p.kind === 'shaft') return placingConnector || placingSleeve
     if (p.kind === 'gear-mesh') return catalog?.category === 'gears'
+    if (p.kind === 'connector-lug') return placingConnector
     if (placingRod) return p.kind === 'socket'
     if (placingSlotted) return p.kind === 'interlock' || p.kind === 'rod-end'
     if (p.kind === 'interlock') return false
