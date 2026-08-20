@@ -926,11 +926,10 @@ function motorBox(
 
 function enclosedMotorPorts(lenMm: number): PortDef[] {
   const half = mm(lenMm) / 2
-  const lugZ = half * 0.92
   return [
     drivenRodThrough(0),
-    connectorLug('lug-a', lugZ, 1),
-    connectorLug('lug-b', -lugZ, -1),
+    connectorLug('lug-a', half, 1),
+    connectorLug('lug-b', -half, -1),
   ]
 }
 

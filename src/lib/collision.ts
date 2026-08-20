@@ -220,6 +220,8 @@ function pieceDiskOf(piece: PlacedPiece): Disk | null {
 /**
  * Flat hubs and shaft rings may sit face-to-face. Capsules with the outer
  * radius would block a second tire on the same rod from a full diameter away.
+ * Non-parallel hubs on a shared shaft are treated as a hit so they cannot
+ * rest in a “V” (joined at one rim, open at the other).
  */
 function disksOverlap(a: Disk, b: Disk): boolean {
   const align = Math.abs(a.axis.dot(b.axis))
@@ -234,6 +236,9 @@ function disksOverlap(a: Disk, b: Disk): boolean {
   const radialB = delta.clone().addScaledVector(b.axis, -delta.dot(b.axis)).length()
   const onShaft = Math.min(radialA, radialB) < Math.min(a.radius, b.radius) * 0.45 + ROD_HIT
   if (!onShaft) return false
+  // Angled hubs on one axle — block the V-gap pose.
+  const span = delta.length()
+  if (span < a.halfH + b.halfH + Math.max(a.radius, b.radius) * 0.9) return true
   const along = radialA <= radialB ? Math.abs(delta.dot(a.axis)) : Math.abs(delta.dot(b.axis))
   return along < a.halfH + b.halfH - 0.02
 }
