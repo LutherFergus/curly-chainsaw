@@ -1258,8 +1258,10 @@ export function nearestGearMesh(
 
 /**
  * Seat a Classic connector on a motor housing lug (structural mount).
- * Aligns the connector hub axis with the motor drive axis so a rod can
- * pass connector → motor drive → connector.
+ * Hub axis stays coaxial with the motor drive so a rod can pass
+ * connector → motor drive → connector. The connector’s inner face sits
+ * flush on the motor end — not embedded in the housing (which looked like
+ * a bottom join with an open V at the top).
  */
 export function connectorPosesOnMotorLug(
   catalog: CatalogPiece,
@@ -1270,39 +1272,57 @@ export function connectorPosesOnMotorLug(
   if (!isConnectorLike(catalog) || lug.kind !== 'connector-lug') return []
   const center = catalog.ports.find((p) => isCenterSocket(p.id))
   if (!center) return []
+  const motorCat = getCatalogPiece(motor.catalogId)
+  if (!motorCat) return []
 
   const qMotor = quatFromTuple(motor.rotation)
-  const lugWorld = new THREE.Vector3(...motor.position).add(
-    new THREE.Vector3(...lug.position).applyQuaternion(qMotor),
-  )
-  const driveAxis = new THREE.Vector3(...lug.direction).applyQuaternion(qMotor).normalize()
+  const motorOrigin = new THREE.Vector3(...motor.position)
+  /** Outward along this lug (away from motor center). */
+  const outward = new THREE.Vector3(...lug.direction).applyQuaternion(qMotor).normalize()
+  const halfLen = (motorCat.thickness ?? 0) / 2
+  /** Motor end face center (outer wall on this side). */
+  const face = motorOrigin.clone().addScaledVector(outward, halfLen)
+  /** Connector center: inner face flush with motor face. */
+  const seat = face.clone().addScaledVector(outward, HUB_HEIGHT / 2)
+
+  // Twist reference shared by both sides → parallel plates.
+  const motorUp = new THREE.Vector3(0, 1, 0).applyQuaternion(qMotor)
+  const upPlanar = motorUp.clone().addScaledVector(outward, -motorUp.dot(outward))
+  if (upPlanar.lengthSq() < 1e-6) {
+    const helper =
+      Math.abs(outward.dot(new THREE.Vector3(1, 0, 0))) < 0.85
+        ? new THREE.Vector3(1, 0, 0)
+        : new THREE.Vector3(0, 0, 1)
+    upPlanar.copy(new THREE.Vector3().crossVectors(outward, helper).normalize())
+  } else {
+    upPlanar.normalize()
+  }
+
+  const workPlanar = workNormal.clone().addScaledVector(outward, -workNormal.dot(outward))
+  const preferWork = workPlanar.lengthSq() > 1e-6
+  if (preferWork) workPlanar.normalize()
 
   const poses: ConnectorAimPose[] = []
+  // Hub outward (preferred) or flipped 180° — both keep the plate ⊥ drive.
   for (const hubSign of [1, -1] as const) {
-    // Connector local Y (hub) → ± motor drive axis (lug outward).
-    const desiredHub = driveAxis.clone().multiplyScalar(hubSign)
+    const desiredHub = outward.clone().multiplyScalar(hubSign)
     const rotation = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(...center.direction).normalize(),
       desiredHub,
     )
-    // Fan clips toward the working plane when possible.
     const localFan = new THREE.Vector3(0, 0, 1).applyQuaternion(rotation)
-    const planar = workNormal.clone().addScaledVector(desiredHub, -workNormal.dot(desiredHub))
-    if (planar.lengthSq() > 1e-6) {
-      planar.normalize()
-      const fanPlanar = localFan.clone().addScaledVector(desiredHub, -localFan.dot(desiredHub))
-      if (fanPlanar.lengthSq() > 1e-6) {
-        fanPlanar.normalize()
-        const twist = new THREE.Quaternion().setFromUnitVectors(fanPlanar, planar)
-        rotation.premultiply(twist)
-      }
+    const fanPlanar = localFan.clone().addScaledVector(desiredHub, -localFan.dot(desiredHub))
+    const targetFan = preferWork && Math.abs(workNormal.dot(outward)) < 0.55 ? workPlanar : upPlanar
+    if (fanPlanar.lengthSq() > 1e-6) {
+      fanPlanar.normalize()
+      // Pick the closer of targetFan / −targetFan so we don't add a 180° flip.
+      const fanTarget =
+        fanPlanar.dot(targetFan) >= 0 ? targetFan : targetFan.clone().multiplyScalar(-1)
+      const twist = new THREE.Quaternion().setFromUnitVectors(fanPlanar, fanTarget)
+      rotation.premultiply(twist)
     }
 
     const localCenter = new THREE.Vector3(...center.position).applyQuaternion(rotation)
-    // Seat hub just outside the lug face.
-    const seat = lugWorld
-      .clone()
-      .addScaledVector(driveAxis, (HUB_HEIGHT / 2) * (hubSign === 1 ? 1 : -1) * 0.15)
     const position = seat.clone().sub(localCenter)
     const inPlane = Math.abs(desiredHub.dot(workNormal)) < 0.35
     poses.push({
@@ -1666,6 +1686,41 @@ export function slideSnapDelta(
 
   let bestDelta = proposedDelta
   let bestScore = SLIDE_SNAP_PULL
+
+  // Face-to-face hubs on the same rail: snap so plates meet flush (no V-gap).
+  for (const id of movingIds) {
+    const start = startPositions.get(id)
+    if (!start) continue
+    const movingPiece = pieces.find((p) => p.id === id)
+    const movingCat = movingPiece ? getCatalogPiece(movingPiece.catalogId) : undefined
+    if (!movingCat || movingCat.category !== 'connectors') continue
+    const qMove = quatFromTuple(movingPiece!.rotation)
+    const hubMove = new THREE.Vector3(0, 1, 0).applyQuaternion(qMove).normalize()
+    if (Math.abs(hubMove.dot(axis)) < 0.85) continue
+    const startPos = new THREE.Vector3(...start)
+    for (const other of pieces) {
+      if (moving.has(other.id)) continue
+      const otherCat = getCatalogPiece(other.catalogId)
+      if (!otherCat || otherCat.category !== 'connectors') continue
+      const qOther = quatFromTuple(other.rotation)
+      const hubOther = new THREE.Vector3(0, 1, 0).applyQuaternion(qOther).normalize()
+      if (Math.abs(hubOther.dot(hubMove)) < 0.85) continue
+      const otherPos = new THREE.Vector3(...other.position)
+      const delta = otherPos.clone().sub(startPos)
+      const radial = delta.clone().addScaledVector(axis, -delta.dot(axis)).length()
+      if (radial > HUB_RADIUS * 1.4) continue
+      const along = delta.dot(axis)
+      const sign = along >= 0 ? 1 : -1
+      const needed = along - sign * HUB_HEIGHT
+      if (needed < minDelta - 1e-6 || needed > maxDelta + 1e-6) continue
+      if (Math.abs(needed - proposedDelta) > SLIDE_SNAP_PULL) continue
+      const score = Math.abs(needed - proposedDelta)
+      if (score < bestScore) {
+        bestScore = score
+        bestDelta = THREE.MathUtils.clamp(needed, minDelta, maxDelta)
+      }
+    }
+  }
 
   for (const a of movingPorts) {
     for (const b of fixedPorts) {
