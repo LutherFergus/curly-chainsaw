@@ -32,6 +32,8 @@ export function BuildMenu() {
   const setTool = useBuilderStore((s) => s.setTool)
   const deleteSelected = useBuilderStore((s) => s.deleteSelected)
   const clearAll = useBuilderStore((s) => s.clearAll)
+  const loadLastSession = useBuilderStore((s) => s.loadLastSession)
+  const hasSavedSession = useBuilderStore((s) => s.hasSavedSession)
   const rotateSelectedY = useBuilderStore((s) => s.rotateSelectedY)
   const rotateSelectedOpposite = useBuilderStore((s) => s.rotateSelectedOpposite)
   const perpSnap = useBuilderStore((s) => s.perpSnap)
@@ -198,6 +200,15 @@ export function BuildMenu() {
             title="Triple-click to clear"
           >
             {clearArmed === 1 ? 'Clear 2' : clearArmed === 2 ? 'Clear 1' : 'Clear'}
+          </button>
+          <button
+            type="button"
+            className="tool-btn"
+            onClick={() => loadLastSession()}
+            disabled={!hasSavedSession}
+            title="Restore the last saved build"
+          >
+            Load last
           </button>
         </div>
       </div>
