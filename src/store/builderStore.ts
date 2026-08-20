@@ -484,7 +484,12 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
           rodAim.targetPortId === rodEnd.portId
         const poses = sameTarget
           ? rodAim.poses
-          : connectorPosesOnRodEnd(catalog, rodEnd, new THREE.Vector3(...workNormal))
+          : connectorPosesOnRodEnd(
+              catalog,
+              rodEnd,
+              new THREE.Vector3(...workNormal),
+              freePorts,
+            )
         if (poses.length) {
           const activeIndex = sameTarget ? rodAim.activeIndex : poses.findIndex((p) => p.inPlane)
           const index = activeIndex >= 0 ? activeIndex : 0
