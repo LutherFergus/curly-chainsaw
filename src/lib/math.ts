@@ -224,7 +224,7 @@ function alignInterlock(
  *
  * Interlock ports (the one 3D slot at local +Z) join slot-into-slot at 90°:
  * incoming hub = targetHub × targetSlot, slots stay aligned. Same recipe
- * for grey/grey, grey/blue, blue/blue, and the 2-clip bar.
+ * for grey/grey, grey/blue, and blue/blue.
  */
 export function alignPieceToPort(
   localPort: PortDef,

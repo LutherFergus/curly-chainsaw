@@ -176,10 +176,10 @@ const connectors: CatalogPiece[] = [
     id: 'conn-orange-straight',
     name: 'Straight Connector',
     category: 'connectors',
-    description: '180° in-line C-clips. Slides into a slotted connector at 90°.',
+    description: '180° in-line C-clips. Does not combine with other connectors.',
     color: '#fd7e14',
     variant: 'plate',
-    ports: withCenters([...clipsAroundY([0, 180], 's'), interlockPort()], 'plate'),
+    ports: withCenters(clipsAroundY([0, 180], 's'), 'plate'),
   },
   {
     id: 'conn-grey-2',

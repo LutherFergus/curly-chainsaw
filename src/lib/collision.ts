@@ -134,28 +134,6 @@ export type GhostSnap = {
   targetPortId: string
 } | null
 
-/** Rods this piece is shaft-coupled to (perp clip or through-hole). */
-function shaftRodIds(pieceId: string, connections: Connection[]): Set<string> {
-  const rods = new Set<string>()
-  for (const c of connections) {
-    if (c.aPieceId === pieceId && c.bPortId === 'shaft') rods.add(c.bPieceId)
-    if (c.bPieceId === pieceId && c.aPortId === 'shaft') rods.add(c.aPieceId)
-    if (c.aPieceId === pieceId && c.aPortId === 'shaft') rods.add(c.aPieceId)
-    if (c.bPieceId === pieceId && c.bPortId === 'shaft') rods.add(c.bPieceId)
-  }
-  return rods
-}
-
-function sharesShaftRod(aId: string, bId: string, connections: Connection[]): boolean {
-  const aRods = shaftRodIds(aId, connections)
-  if (!aRods.size) return false
-  const bRods = shaftRodIds(bId, connections)
-  for (const id of aRods) {
-    if (bRods.has(id)) return true
-  }
-  return false
-}
-
 function skipPieceIds(
   candidate: PlacedPiece,
   others: PlacedPiece[],
@@ -177,19 +155,9 @@ function skipPieceIds(
     ]
   }
   const scene = others.some((p) => p.id === candidate.id) ? others : [...others, candidate]
-  const seated = mergeGeometricConnections(scene, conns)
-  for (const c of seated) {
+  for (const c of mergeGeometricConnections(scene, conns)) {
     if (c.aPieceId === candidate.id) skip.add(c.bPieceId)
     if (c.bPieceId === candidate.id) skip.add(c.aPieceId)
-  }
-  // Connectors on one shaft can slide together. Unslotted plates that only
-  // overlap in space (no slot join, no shared rod) still collide.
-  if (getCatalogPiece(candidate.catalogId)?.category === 'connectors') {
-    for (const other of others) {
-      if (other.id === candidate.id || skip.has(other.id)) continue
-      if (getCatalogPiece(other.catalogId)?.category !== 'connectors') continue
-      if (sharesShaftRod(candidate.id, other.id, seated)) skip.add(other.id)
-    }
   }
   return skip
 }
