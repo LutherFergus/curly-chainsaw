@@ -4,6 +4,8 @@ import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
 import {
   FULL_CLIP_ANGLES,
   HALF_CLIP_ANGLES,
+  HUB_HEIGHT,
+  HUB_RADIUS,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
 } from '../../data/catalog'
@@ -114,13 +116,12 @@ function InterlockSlot({
   mat: MatProps
   half?: boolean
 }) {
-  const slotW = 0.11
-  const slotD = half ? 0.2 : 0.34
-  const slotH = 0.085
+  const slotW = HUB_HEIGHT * 1.04
+  const slotD = half ? 0.22 : 0.38
+  const slotH = HUB_HEIGHT * 1.04
   return (
     <group>
-      {/* Dark void reading as the through-slot */}
-      <mesh position={[0, 0, half ? -0.05 : -0.02]}>
+      <mesh>
         <boxGeometry args={[slotW, slotH, slotD]} />
         <meshStandardMaterial
           color="#141518"
@@ -130,16 +131,9 @@ function InterlockSlot({
           depthWrite={mat.depthWrite}
         />
       </mesh>
-      {/* Side walls of the notch */}
-      {([-1, 1] as const).map((side) => (
-        <mesh key={side} position={[side * (slotW / 2 + 0.018), 0, half ? -0.04 : -0.01]}>
-          <boxGeometry args={[0.03, slotH * 1.15, slotD * 0.95]} />
-          <Plastic mat={mat} />
-        </mesh>
-      ))}
       {half && (
-        <mesh position={[0, 0, -0.16]}>
-          <boxGeometry args={[slotW * 1.35, slotH * 1.1, 0.05]} />
+        <mesh position={[0, 0, -slotD / 2 - 0.02]}>
+          <boxGeometry args={[slotW * 1.2, slotH * 1.05, 0.05]} />
           <Plastic mat={mat} />
         </mesh>
       )}
@@ -163,8 +157,8 @@ function ConnectorPlate({
   color?: string
 }) {
   const plateMat = color ? { ...mat, color } : mat
-  const hubR = 0.11
-  const hubH = 0.14
+  const hubR = HUB_RADIUS
+  const hubH = HUB_HEIGHT
   const holeR = ROD_RADIUS_SCENE * 1.05
 
   const clips = useMemo(
@@ -240,7 +234,7 @@ function AssembledHub({
           angles={[0, 45, 90, 135, 180, 225, 270, 315]}
           slotted
         />
-        <group rotation={[Math.PI / 2, 0, 0]}>
+        <group rotation={[0, 0, -Math.PI / 2]}>
           <ConnectorPlate
             mat={mat}
             color={fullColor}
@@ -261,7 +255,7 @@ function AssembledHub({
           angles={[0, 45, 90, 135, 180, 225, 270, 315]}
           slotted
         />
-        <group rotation={[Math.PI / 2, 0, 0]}>
+        <group rotation={[0, 0, -Math.PI / 2]}>
           <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
         </group>
       </group>
@@ -272,7 +266,7 @@ function AssembledHub({
     return (
       <group>
         <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
-        <group rotation={[Math.PI / 2, 0, 0]}>
+        <group rotation={[0, 0, -Math.PI / 2]}>
           <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
         </group>
       </group>
@@ -330,7 +324,14 @@ function ConnectorMesh({
     )
   }
 
-  return <ConnectorPlate mat={mat} accent={catalog.accent} angles={angles} />
+  return (
+    <ConnectorPlate
+      mat={mat}
+      accent={catalog.accent}
+      angles={angles}
+      slotted={catalog.ports.some((p) => p.kind === 'interlock')}
+    />
+  )
 }
 
 export function PieceMesh({

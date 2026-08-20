@@ -37,6 +37,7 @@ export function worldPort(
   const localDir = new THREE.Vector3(...port.direction).normalize()
   localPos.applyQuaternion(quat)
   localDir.applyQuaternion(quat)
+  const localSlot = new THREE.Vector3(0, 0, 1).applyQuaternion(quat)
   return {
     pieceId: piece.id,
     portId: port.id,
@@ -47,6 +48,7 @@ export function worldPort(
       piece.position[2] + localPos.z,
     ],
     direction: [localDir.x, localDir.y, localDir.z],
+    slot: [localSlot.x, localSlot.y, localSlot.z],
     occupied,
   }
 }
@@ -157,13 +159,27 @@ export function alignPieceToPort(
   }
   if (localPort.kind === 'interlock' && target.kind === 'interlock') {
     const targetHub = new THREE.Vector3(...target.direction).normalize()
-    const helper =
-      Math.abs(targetHub.dot(new THREE.Vector3(0, 1, 0))) < 0.85
-        ? new THREE.Vector3(0, 1, 0)
-        : new THREE.Vector3(1, 0, 0)
-    const newHub = new THREE.Vector3().crossVectors(targetHub, helper).normalize()
+    const targetSlot = new THREE.Vector3(...target.slot).normalize()
+    const ghostHub = new THREE.Vector3().crossVectors(targetHub, targetSlot).normalize()
+    if (ghostHub.lengthSq() < 1e-6) {
+      ghostHub
+        .crossVectors(
+          targetHub,
+          Math.abs(targetHub.y) < 0.85 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0),
+        )
+        .normalize()
+    }
     const localHub = new THREE.Vector3(...localPort.direction).normalize()
-    const rotation = new THREE.Quaternion().setFromUnitVectors(localHub, newHub)
+    const rotation = new THREE.Quaternion().setFromUnitVectors(localHub, ghostHub)
+    const localSlot = new THREE.Vector3(0, 0, 1).applyQuaternion(rotation)
+    const slotDot = localSlot.dot(targetSlot)
+    if (Math.abs(slotDot) < 0.98) {
+      const alignedSlot = slotDot < 0 ? targetSlot.clone().multiplyScalar(-1) : targetSlot.clone()
+      const twist = new THREE.Quaternion().setFromUnitVectors(localSlot, alignedSlot)
+      rotation.premultiply(twist)
+    } else if (slotDot < 0) {
+      rotation.premultiply(new THREE.Quaternion().setFromAxisAngle(ghostHub, Math.PI))
+    }
     const localPos = new THREE.Vector3(...localPort.position).applyQuaternion(rotation)
     const targetPos = new THREE.Vector3(...target.position)
     const position = targetPos.sub(localPos)
@@ -338,6 +354,42 @@ export function findRodSnapOnPointer(
   const hovered = nearestSocketOnPointer(freePorts, view)
   if (!hovered) return null
   return findBestSnap(catalog, [hovered], new THREE.Vector3(...hovered.position))
+}
+
+const CLIP_GRIP = 0.34
+
+/** If a rod end is sitting in a clip, lock to that clip’s axis — no in-between tilts. */
+export function axialSnapIfNearSocket(
+  catalog: CatalogPiece,
+  pose: { position: [number, number, number]; rotation: [number, number, number, number] },
+  freePorts: WorldPort[],
+): ReturnType<typeof findBestSnap> {
+  if (catalog.category !== 'rods') return null
+  const dummy: PlacedPiece = {
+    id: 'ghost',
+    catalogId: catalog.id,
+    position: pose.position,
+    rotation: pose.rotation,
+  }
+  let best: { local: PortDef; target: WorldPort; dist: number } | null = null
+  for (const local of catalog.ports) {
+    if (local.kind !== 'rod-end') continue
+    const end = new THREE.Vector3(...worldPort(dummy, local, false).position)
+    for (const target of freePorts) {
+      if (target.kind !== 'socket' || isCenterSocket(target.portId) || target.occupied) continue
+      const dist = end.distanceTo(new THREE.Vector3(...target.position))
+      if (dist > CLIP_GRIP) continue
+      if (!best || dist < best.dist) best = { local, target, dist }
+    }
+  }
+  if (!best) return null
+  const poseSnap = alignPieceToPort(best.local, best.target)
+  return {
+    ...poseSnap,
+    localPortId: best.local.id,
+    target: best.target,
+    distance: best.dist,
+  }
 }
 
 export interface ConnectorAimPose {

@@ -5,6 +5,9 @@ const ROD_RADIUS = 0.08
 /** Hub center → clip grip distance. */
 export const SOCKET_RADIUS = 0.28
 export const ROD_RADIUS_SCENE = ROD_RADIUS
+/** Plate thickness (= hub diameter) so 90° interlock flats share a cube. */
+export const HUB_RADIUS = 0.11
+export const HUB_HEIGHT = HUB_RADIUS * 2
 
 /** Classic K'NEX rod lengths: center-to-center effective length uses √2 progression (green = 1). */
 const SQRT2 = Math.SQRT2
@@ -153,10 +156,10 @@ const connectors: CatalogPiece[] = [
     id: 'conn-orange-straight',
     name: 'Straight Connector',
     category: 'connectors',
-    description: '180° in-line C-clips. Does not combine with other connectors.',
+    description: '180° in-line C-clips. Slides into a slotted connector at 90°.',
     color: '#fd7e14',
     variant: 'plate',
-    ports: withCenters(clipsAroundY([0, 180], 's'), 'plate'),
+    ports: withCenters([...clipsAroundY([0, 180], 's'), interlockPort()], 'plate'),
   },
   {
     id: 'conn-90',
