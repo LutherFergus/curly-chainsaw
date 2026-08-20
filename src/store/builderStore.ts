@@ -32,6 +32,8 @@ import {
   occupancyKeys,
   mergeGeometricConnections,
   slideJointForPiece,
+  slideMovingIds,
+  slideSnapDelta,
   rayAxisT,
   SNAP_DISTANCE,
   snapPointToGrid,
@@ -95,7 +97,8 @@ interface BuilderState {
   } | null
   slide: {
     pieceId: string
-    startPos: [number, number, number]
+    companionIds: string[]
+    startPositions: Record<string, [number, number, number]>
     origin: [number, number, number]
     dir: [number, number, number]
     grabT: number
@@ -705,11 +708,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const dir = new THREE.Vector3(...joint.dir)
     const grabT = rayAxisT(ray, origin, dir)
     if (grabT == null) return false
+    const companionIds = slideMovingIds(pieceId, joint.anchorIds, pieces, connections)
+    const startPositions: Record<string, [number, number, number]> = {}
+    for (const id of companionIds) {
+      const p = pieces.find((x) => x.id === id)
+      if (p) startPositions[id] = [...p.position]
+    }
     set({
       selectedPieceId: pieceId,
       slide: {
         pieceId,
-        startPos: [...piece.position],
+        companionIds,
+        startPositions,
         origin: joint.origin,
         dir: joint.dir,
         grabT,
@@ -729,25 +739,56 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const dir = new THREE.Vector3(...slide.dir)
     const t = rayAxisT(ray, origin, dir)
     if (t == null) return
-    const delta = THREE.MathUtils.clamp(t - slide.grabT, slide.minDelta, slide.maxDelta)
-    const nextPos: [number, number, number] = [
-      slide.startPos[0] + dir.x * delta,
-      slide.startPos[1] + dir.y * delta,
-      slide.startPos[2] + dir.z * delta,
-    ]
-    const piece = pieces.find((p) => p.id === slide.pieceId)
-    if (!piece) return
+    let delta = THREE.MathUtils.clamp(t - slide.grabT, slide.minDelta, slide.maxDelta)
+    const startMap = new Map(
+      Object.entries(slide.startPositions) as [string, [number, number, number]][],
+    )
+    delta = slideSnapDelta(
+      slide.companionIds,
+      pieces,
+      connections,
+      dir,
+      delta,
+      slide.minDelta,
+      slide.maxDelta,
+      startMap,
+    )
+
+    const moving = new Set(slide.companionIds)
+    const nextPieces = pieces.map((p) => {
+      if (!moving.has(p.id)) return p
+      const start = slide.startPositions[p.id] ?? p.position
+      return {
+        ...p,
+        position: [
+          start[0] + dir.x * delta,
+          start[1] + dir.y * delta,
+          start[2] + dir.z * delta,
+        ] as [number, number, number],
+      }
+    })
+
+    const root = nextPieces.find((p) => p.id === slide.pieceId)
+    if (!root) return
+    const prev = pieces.find((p) => p.id === slide.pieceId)
     if (
-      Math.abs(nextPos[0] - piece.position[0]) < 1e-5 &&
-      Math.abs(nextPos[1] - piece.position[1]) < 1e-5 &&
-      Math.abs(nextPos[2] - piece.position[2]) < 1e-5
+      prev &&
+      Math.abs(root.position[0] - prev.position[0]) < 1e-5 &&
+      Math.abs(root.position[1] - prev.position[1]) < 1e-5 &&
+      Math.abs(root.position[2] - prev.position[2]) < 1e-5
     ) {
       return
     }
-    const nextPiece = { ...piece, position: nextPos }
-    if (poseCollides(nextPiece, pieces, connections)) return
+
+    for (const id of slide.companionIds) {
+      const next = nextPieces.find((p) => p.id === id)
+      if (!next) continue
+      if (poseCollides(next, nextPieces, connections)) return
+    }
+
     set({
-      pieces: pieces.map((p) => (p.id === slide.pieceId ? nextPiece : p)),
+      pieces: nextPieces,
+      connections: mergeGeometricConnections(nextPieces, connections),
       slide: { ...slide, moved: true },
     })
   },
