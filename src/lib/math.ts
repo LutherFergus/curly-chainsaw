@@ -1225,8 +1225,8 @@ function contactOnRod(
 
 /**
  * Axis slide for a perp clip on a shaft, a hub with a rod through its center,
- * or a spacer / wheel / gear on that shaft. Rod-end and interlock joints pin
- * the piece, so those cannot slide.
+ * or a spacer / wheel / gear on that shaft. Rod-end joints to outside pieces
+ * still pin; nested combo interlocks ride along together.
  */
 function slideJointFromSeated(
   piece: PlacedPiece,
@@ -1246,8 +1246,11 @@ function slideJointFromSeated(
     const theirPort = partnerCatalog?.ports.find(
       (p) => p.id === (mineIsA ? conn.bPortId : conn.aPortId),
     )
-    if (myPort?.kind === 'interlock' || theirPort?.kind === 'interlock') return null
-    if (myPort?.kind === 'rod-end' || theirPort?.kind === 'rod-end') return null
+    // Nested combo plates stay locked to each other but may slide as one unit.
+    if (myPort?.kind === 'interlock' || theirPort?.kind === 'interlock') continue
+    // Only the grabbed piece’s own rod-end seat pins. Rods clipped into this
+    // hub’s sockets ride along as companions instead of blocking the slide.
+    if (myPort?.kind === 'rod-end') return null
   }
 
   const joints: { rod: PlacedPiece; connector: PlacedPiece; contact: THREE.Vector3 }[] = []
@@ -1316,12 +1319,18 @@ export function slideJointForPiece(
   pieces: PlacedPiece[],
   connections: Connection[],
 ): SlideJoint | null {
-  return slideJointFromSeated(piece, pieces, mergeGeometricConnections(pieces, connections))
+  const seated = mergeGeometricConnections(pieces, connections)
+  const joint = slideJointFromSeated(piece, pieces, seated)
+  if (!joint) return null
+  const moving = slideMovingIds(piece.id, joint.anchorIds, pieces, connections)
+  if (slideClusterTears(moving, joint.anchorIds, pieces, connections)) return null
+  return joint
 }
 
 /**
  * Pieces that should translate with a slide: the grabbed piece plus dangling
- * attachments that are not rail anchors and are not tied into the rest of the build.
+ * attachments / nested combo partners that are not rail anchors and are not
+ * tied into the rest of the build.
  */
 export function slideMovingIds(
   rootId: string,
@@ -1332,14 +1341,35 @@ export function slideMovingIds(
   const seated = mergeGeometricConnections(pieces, connections)
   const anchors = new Set(anchorIds)
   const neighbors = new Map<string, Set<string>>()
-  for (const p of pieces) neighbors.set(p.id, new Set())
+  const interlockNeighbors = new Map<string, Set<string>>()
+  for (const p of pieces) {
+    neighbors.set(p.id, new Set())
+    interlockNeighbors.set(p.id, new Set())
+  }
   for (const c of seated) {
     neighbors.get(c.aPieceId)?.add(c.bPieceId)
     neighbors.get(c.bPieceId)?.add(c.aPieceId)
+    if (c.aPortId === 'interlock' || c.bPortId === 'interlock') {
+      interlockNeighbors.get(c.aPieceId)?.add(c.bPieceId)
+      interlockNeighbors.get(c.bPieceId)?.add(c.aPieceId)
+    }
   }
 
   const moving = new Set<string>([rootId])
+  // Always pull nested combo plates along — they share the hub.
   let grew = true
+  while (grew) {
+    grew = false
+    for (const id of [...moving]) {
+      for (const n of interlockNeighbors.get(id) ?? []) {
+        if (anchors.has(n) || moving.has(n)) continue
+        moving.add(n)
+        grew = true
+      }
+    }
+  }
+
+  grew = true
   while (grew) {
     grew = false
     for (const id of [...moving]) {
@@ -1355,7 +1385,28 @@ export function slideMovingIds(
       }
     }
   }
+
   return [...moving]
+}
+
+/** True when a slide would leave a seated joint with one side moving and one fixed. */
+export function slideClusterTears(
+  movingIds: string[],
+  anchorIds: string[],
+  pieces: PlacedPiece[],
+  connections: Connection[],
+): boolean {
+  const seated = mergeGeometricConnections(pieces, connections)
+  const moving = new Set(movingIds)
+  const anchors = new Set(anchorIds)
+  for (const c of seated) {
+    const aMove = moving.has(c.aPieceId)
+    const bMove = moving.has(c.bPieceId)
+    if (aMove === bMove) continue
+    if (anchors.has(c.aPieceId) || anchors.has(c.bPieceId)) continue
+    return true
+  }
+  return false
 }
 
 const SLIDE_SNAP_LATERAL = 0.14
@@ -1468,10 +1519,9 @@ export function canSlidePiece(
 }
 
 export function slidablePieceIds(pieces: PlacedPiece[], connections: Connection[]): Set<string> {
-  const seated = mergeGeometricConnections(pieces, connections)
   const ids = new Set<string>()
   for (const piece of pieces) {
-    if (slideJointFromSeated(piece, pieces, seated)) ids.add(piece.id)
+    if (slideJointForPiece(piece, pieces, connections)) ids.add(piece.id)
   }
   return ids
 }
@@ -1528,7 +1578,6 @@ export function nearestSlidablePiece(
   ray: THREE.Ray,
   maxDist = 0.9,
 ): PlacedPiece | null {
-  const seated = mergeGeometricConnections(pieces, connections)
   // Prefer sleeves / hubs / clips over rods so dragging a spacer moves the
   // spacer along the shaft instead of pulling the rod through it.
   let bestSleeve: PlacedPiece | null = null
@@ -1537,7 +1586,7 @@ export function nearestSlidablePiece(
   let bestRodDist = maxDist
 
   for (const piece of pieces) {
-    if (!slideJointFromSeated(piece, pieces, seated)) continue
+    if (!slideJointForPiece(piece, pieces, connections)) continue
     const catalog = getCatalogPiece(piece.catalogId)
     if (!catalog) continue
     const dist = slidableHitDistance(piece, catalog, ray)
