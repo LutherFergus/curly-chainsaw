@@ -865,12 +865,16 @@ export function sleevePosesOnShaft(
     catalog.ports.find((p) => p.id === 'bore' || p.id === 'axle') ??
     catalog.ports.find((p) => p.kind === 'socket')
   if (!axle) return []
-  const { dir } = rodAxis(rod)
+  const { origin, dir, half } = rodAxis(rod)
   const localDir = new THREE.Vector3(...axle.direction).normalize()
   const localPos = new THREE.Vector3(...axle.position)
   const rotation = new THREE.Quaternion().setFromUnitVectors(localDir, dir.clone().normalize())
   const offset = localPos.clone().applyQuaternion(rotation)
-  const position = shaftPoint.clone().sub(offset)
+  const extra = (catalog.thickness ?? 0) / 2
+  const span = Math.max(0, half - SHAFT_END_INSET - extra)
+  const t = THREE.MathUtils.clamp(shaftPoint.clone().sub(origin).dot(dir), -span, span)
+  const onShaft = origin.clone().addScaledVector(dir, t)
+  const position = onShaft.sub(offset)
   const rot = canonicalRotation(tupleFromQuat(rotation))
   return [
     {
@@ -1004,7 +1008,8 @@ function slideJointFromSeated(
   if (catalog.category === 'rods' && rod.id !== piece.id) return null
 
   const { origin, dir, half } = rodAxis(rod)
-  const span = Math.max(0, half - SHAFT_END_INSET)
+  const face = isShaftSleeve(catalog) ? (catalog.thickness ?? 0) / 2 : 0
+  const span = Math.max(0, half - SHAFT_END_INSET - face)
   const slidingRod = catalog.category === 'rods'
   let minDelta = Number.NEGATIVE_INFINITY
   let maxDelta = Number.POSITIVE_INFINITY

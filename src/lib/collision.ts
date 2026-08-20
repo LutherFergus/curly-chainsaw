@@ -6,10 +6,12 @@ import {
   HUB_RADIUS,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
+  SPACER_OUTER_RADIUS,
   getCatalogPiece,
   isConnectorLike,
+  isShaftSleeve,
 } from '../data/catalog'
-import { isCenterSocket, mergeGeometricConnections, quatFromTuple } from './math'
+import { isCenterSocket, mergeGeometricConnections, quatFromTuple, rodAxis } from './math'
 
 const ROD_HIT = ROD_RADIUS_SCENE * 1.08
 const GHOST_ID = 'ghost'
@@ -170,30 +172,42 @@ function clipsScissor(a: Capsule[], b: Capsule[]): boolean {
   return false
 }
 
-type HubDisk = {
+type Disk = {
   origin: THREE.Vector3
   axis: THREE.Vector3
   radius: number
   halfH: number
 }
 
-function hubDiskOf(piece: PlacedPiece): HubDisk | null {
+function pieceDiskOf(piece: PlacedPiece): Disk | null {
   const catalog = getCatalogPiece(piece.catalogId)
-  if (catalog?.category !== 'connectors') return null
+  if (!catalog) return null
   const q = quatFromTuple(piece.rotation)
-  return {
-    origin: new THREE.Vector3(...piece.position),
-    axis: new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize(),
-    radius: HUB_RADIUS,
-    halfH: HUB_HEIGHT / 2,
+  const origin = new THREE.Vector3(...piece.position)
+  if (isShaftSleeve(catalog)) {
+    return {
+      origin,
+      axis: new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize(),
+      radius: catalog.radius ?? SPACER_OUTER_RADIUS,
+      halfH: (catalog.thickness ?? HUB_HEIGHT) / 2,
+    }
   }
+  if (catalog.category === 'connectors') {
+    return {
+      origin,
+      axis: new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize(),
+      radius: HUB_RADIUS,
+      halfH: HUB_HEIGHT / 2,
+    }
+  }
+  return null
 }
 
 /**
- * Flat hubs may sit face-to-face or rim-to-rim. They may not occupy the same
- * disk. Capsules would treat stacked faces as a hit because of spherical caps.
+ * Flat hubs and shaft rings may sit face-to-face. Capsules with the outer
+ * radius would block a second tire on the same rod from a full diameter away.
  */
-function hubDisksOverlap(a: HubDisk, b: HubDisk): boolean {
+function disksOverlap(a: Disk, b: Disk): boolean {
   const align = Math.abs(a.axis.dot(b.axis))
   const delta = b.origin.clone().sub(a.origin)
   if (align > 0.82) {
@@ -202,7 +216,21 @@ function hubDisksOverlap(a: HubDisk, b: HubDisk): boolean {
     if (axial >= a.halfH + b.halfH - 0.02) return false
     return radial < a.radius + b.radius - 0.012
   }
-  return delta.length() < (a.radius + b.radius) * 0.82
+  const radialA = delta.clone().addScaledVector(a.axis, -delta.dot(a.axis)).length()
+  const radialB = delta.clone().addScaledVector(b.axis, -delta.dot(b.axis)).length()
+  const onShaft = Math.min(radialA, radialB) < Math.min(a.radius, b.radius) * 0.45 + ROD_HIT
+  if (!onShaft) return false
+  const along = radialA <= radialB ? Math.abs(delta.dot(a.axis)) : Math.abs(delta.dot(b.axis))
+  return along < a.halfH + b.halfH - 0.02
+}
+
+/** A rod through a coaxial bore is a fit, not a hit. */
+function shaftThroughDisk(rod: PlacedPiece, disk: Disk): boolean {
+  const { origin, dir } = rodAxis(rod)
+  if (Math.abs(dir.dot(disk.axis)) < 0.9) return false
+  const delta = disk.origin.clone().sub(origin)
+  const radial = delta.clone().addScaledVector(dir, -delta.dot(dir)).length()
+  return radial < ROD_HIT * 1.8
 }
 
 function pairOverlaps(a: PlacedPiece, b: PlacedPiece): boolean {
@@ -210,10 +238,17 @@ function pairOverlaps(a: PlacedPiece, b: PlacedPiece): boolean {
   const cb = getCatalogPiece(b.catalogId)
   if (ca?.category === 'connectors' && cb?.category === 'connectors') {
     if (clipsScissor(clipCapsulesFor(a), clipCapsulesFor(b))) return true
-    const ha = hubDiskOf(a)
-    const hb = hubDiskOf(b)
-    return Boolean(ha && hb && hubDisksOverlap(ha, hb))
+    const ha = pieceDiskOf(a)
+    const hb = pieceDiskOf(b)
+    return Boolean(ha && hb && disksOverlap(ha, hb))
   }
+  const rod = ca?.category === 'rods' ? a : cb?.category === 'rods' ? b : null
+  const other = rod === a ? b : rod === b ? a : null
+  const disk = other ? pieceDiskOf(other) : null
+  if (rod && disk && shaftThroughDisk(rod, disk)) return false
+  const da = pieceDiskOf(a)
+  const db = pieceDiskOf(b)
+  if (da && db) return disksOverlap(da, db)
   const clips = ca?.category === 'rods' || cb?.category === 'rods'
   return capsulesOverlap(capsulesFor(a, clips), capsulesFor(b, clips))
 }
