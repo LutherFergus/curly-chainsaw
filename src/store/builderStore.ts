@@ -8,7 +8,7 @@ import type {
   ToolMode,
   WorldPort,
 } from '../types/knex'
-import { getCatalogPiece } from '../data/catalog'
+import { getCatalogPiece, isConnectorLike, isShaftSleeve } from '../data/catalog'
 import {
   aimPointOnSlotPlane,
   aimRodFromAnchor,
@@ -25,6 +25,7 @@ import {
   nearestRodEnd,
   nearestRodShaft,
   connectorPosesOnShaft,
+  sleevePosesOnShaft,
   nextUsableConnectorPose,
   occupancyKeys,
   mergeGeometricConnections,
@@ -300,7 +301,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       }
     }
 
-    if (perpSnap && catalog.category === 'connectors') {
+    if (perpSnap && isConnectorLike(catalog)) {
       const hit = nearestRodShaft(pieces, point)
       if (hit) {
         const poses = connectorPosesOnShaft(
@@ -357,7 +358,33 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       return
     }
 
-    if (catalog.category === 'connectors') {
+    if (isShaftSleeve(catalog)) {
+      const hit = nearestRodShaft(pieces, point)
+      if (hit) {
+        const poses = sleevePosesOnShaft(catalog, hit.piece, hit.point)
+        if (poses.length) {
+          const pose = poses[0]
+          set({
+            rodAim: null,
+            ghost: makeGhost(
+              selectedCatalogId,
+              pose.position,
+              pose.rotation,
+              {
+                localPortId: pose.localPortId,
+                targetPieceId: hit.piece.id,
+                targetPortId: 'shaft',
+              },
+              pieces,
+              connections,
+            ),
+          })
+          return
+        }
+      }
+    }
+
+    if (isConnectorLike(catalog)) {
       const leave = SNAP_DISTANCE + 0.55
       const sameTip =
         rodAim &&
@@ -764,7 +791,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const piece = pieces.find((p) => p.id === selectedPieceId)
     if (!piece) return
     const catalog = getCatalogPiece(piece.catalogId)
-    if (catalog?.category === 'connectors') {
+    if (catalog && isConnectorLike(catalog)) {
       get().rotateConnector(selectedPieceId, 'in-plane')
       return
     }
@@ -821,7 +848,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const piece = pieces.find((p) => p.id === selectedPieceId)
     if (!piece) return
     const catalog = getCatalogPiece(piece.catalogId)
-    if (catalog?.category === 'connectors') {
+    if (catalog && isConnectorLike(catalog)) {
       get().rotateConnector(selectedPieceId, 'opposite')
       return
     }

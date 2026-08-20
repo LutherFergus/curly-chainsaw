@@ -4,7 +4,16 @@ import type { PieceCategory } from '../types/knex'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceIcon } from './PieceIcon'
 
-const ORDER: PieceCategory[] = ['rods', 'connectors', 'wheels', 'gears']
+const ORDER: PieceCategory[] = [
+  'rods',
+  'connectors',
+  'clips',
+  'spacers',
+  'wheels',
+  'gears',
+  'panels',
+  'chain',
+]
 
 function Chevron({ direction }: { direction: 'left' | 'right' }) {
   return (
