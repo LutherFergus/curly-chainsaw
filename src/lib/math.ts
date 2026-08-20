@@ -800,6 +800,87 @@ export function occupiedPortKeys(
   return keys
 }
 
+function portKey(pieceId: string, portId: string): string {
+  return `${pieceId}:${portId}`
+}
+
+/**
+ * Adjacent 45° clips are ~0.21 apart; a seated rod-end coincides with its
+ * socket. Stay below the adjacent spacing so we only occupy the real clip.
+ */
+const COUPLE_DIST = 0.11
+
+function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
+  if (a.kind === 'interlock' && b.kind === 'interlock') return true
+  if (a.kind === 'rod-end' && b.kind === 'socket') return !isCenterSocket(b.portId)
+  if (a.kind === 'socket' && b.kind === 'rod-end') return !isCenterSocket(a.portId)
+  if (a.kind === 'shaft' && b.kind === 'socket') return isCenterSocket(b.portId)
+  if (a.kind === 'socket' && b.kind === 'shaft') return isCenterSocket(a.portId)
+  return false
+}
+
+function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
+  const dot = new THREE.Vector3(...a.direction).dot(new THREE.Vector3(...b.direction))
+  if (a.kind === 'interlock' || b.kind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
+  if (
+    a.kind === 'shaft' ||
+    b.kind === 'shaft' ||
+    isCenterSocket(a.portId) ||
+    isCenterSocket(b.portId)
+  ) {
+    return Math.abs(dot) > 0.9
+  }
+  return dot < POSE_DIR_OPPOSITE
+}
+
+/**
+ * Record every seated pair (rod in a clip, shaft through a hub, nested slots),
+ * not only the single snap used at placement. Two rods on one connector both
+ * occupy their clips.
+ */
+export function mergeGeometricConnections(
+  pieces: PlacedPiece[],
+  connections: Connection[],
+): Connection[] {
+  const occupied = occupiedPortKeys(connections)
+  const free = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+  const pairs: { a: WorldPort; b: WorldPort; dist: number }[] = []
+  for (let i = 0; i < free.length; i++) {
+    for (let j = i + 1; j < free.length; j++) {
+      const a = free[i]
+      const b = free[j]
+      if (a.pieceId === b.pieceId) continue
+      if (!worldPortsCompatible(a, b)) continue
+      const dist = new THREE.Vector3(...a.position).distanceTo(new THREE.Vector3(...b.position))
+      if (dist > COUPLE_DIST) continue
+      if (!worldDirectionsMatch(a, b)) continue
+      pairs.push({ a, b, dist })
+    }
+  }
+  pairs.sort((x, y) => x.dist - y.dist)
+  const used = new Set(occupied)
+  const extra: Connection[] = []
+  for (const { a, b } of pairs) {
+    const ka = portKey(a.pieceId, a.portId)
+    const kb = portKey(b.pieceId, b.portId)
+    if (used.has(ka) || used.has(kb)) continue
+    used.add(ka)
+    used.add(kb)
+    extra.push({
+      aPieceId: a.pieceId,
+      aPortId: a.portId,
+      bPieceId: b.pieceId,
+      bPortId: b.portId,
+    })
+  }
+  return extra.length ? [...connections, ...extra] : connections
+}
+
+/** Occupied ports from stored connections plus any geometrically seated mates. */
+export function occupancyKeys(pieces: PlacedPiece[], connections: Connection[]): Set<string> {
+  return occupiedPortKeys(mergeGeometricConnections(pieces, connections))
+}
+
 function portsCompatible(local: PortDef, target: WorldPort): boolean {
   if (local.kind === 'interlock' && target.kind === 'interlock') return true
   if (local.kind === 'rod-end' && target.kind === 'socket') return !isCenterSocket(target.portId)

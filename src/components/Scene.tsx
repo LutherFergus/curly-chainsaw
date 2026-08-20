@@ -11,7 +11,7 @@ import {
   hasInterlock,
   isCenterSocket,
   nearestInterlockOnPointer,
-  occupiedPortKeys,
+  occupancyKeys,
   pickConnectorAimPose,
   portOrbPosition,
   type PointerView,
@@ -155,7 +155,7 @@ function SnapHints() {
 
   const freePorts = useMemo(() => {
     if (tool !== 'place' || !selectedCatalogId) return []
-    const occupied = occupiedPortKeys(connections)
+    const occupied = occupancyKeys(pieces, connections)
     return allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
   }, [pieces, connections, tool, selectedCatalogId])
 
@@ -545,7 +545,7 @@ function SlotSteerGestures() {
       const catalog = getCatalogPiece(state.selectedCatalogId)
       if (!catalog || !hasInterlock(catalog)) return
       const view = pointerView(event, canvas, camera)
-      const occupied = occupiedPortKeys(state.connections)
+      const occupied = occupancyKeys(state.pieces, state.connections)
       const freePorts = allWorldPorts(state.pieces, occupied).filter((p) => !p.occupied)
       const hovered = nearestInterlockOnPointer(freePorts, view)
       if (!hovered) return
