@@ -6,7 +6,6 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   const accent = piece.accent ?? color
 
   if (piece.category === 'rods') {
-    // Relative length scaled for icon (green shortest → gray longest)
     const lengths: Record<string, number> = {
       'rod-green': 16,
       'rod-white': 22,
@@ -14,17 +13,89 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
       'rod-yellow': 38,
       'rod-red': 48,
       'rod-gray': 56,
+      'flexi-white': 22,
+      'flexi-blue': 28,
+      'flexi-yellow': 38,
+      'flexi-gray': 56,
     }
     const len = lengths[piece.id] ?? 32
     const x = (64 - len) / 2
+    const wavy = Boolean(piece.flexi)
     return (
       <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
-        <rect x={x} y="28" width={len} height="4" rx="1" fill={color} />
-        <rect x={x} y="30.5" width={len} height="1.2" fill={accent} opacity="0.55" />
+        {wavy ? (
+          <path
+            d={`M${x} 30 Q${x + len * 0.25} 22 ${x + len * 0.5} 30 T${x + len} 30`}
+            fill="none"
+            stroke={color}
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+        ) : (
+          <>
+            <rect x={x} y="28" width={len} height="4" rx="1" fill={color} />
+            <rect x={x} y="30.5" width={len} height="1.2" fill={accent} opacity="0.55" />
+          </>
+        )}
         <circle cx={x} cy="30" r="3.2" fill={color} />
         <circle cx={x + len} cy="30" r="3.2" fill={color} />
-        <circle cx={x} cy="30" r="1.6" fill="#1a1b1e" opacity="0.25" />
-        <circle cx={x + len} cy="30" r="1.6" fill="#1a1b1e" opacity="0.25" />
+      </svg>
+    )
+  }
+
+  if (piece.category === 'spacers') {
+    const thick = piece.id === 'spacer-silver' ? 10 : 4
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <rect x={32 - thick / 2} y="18" width={thick} height="28" rx="2" fill={color} />
+        <circle cx="32" cy="32" r="6" fill="#1a1b1e" opacity="0.35" />
+      </svg>
+    )
+  }
+
+  if (piece.variant === 'hole-clip') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <circle cx="22" cy="32" r="7" fill="none" stroke={color} strokeWidth="4" />
+        <rect x="28" y="28" width="14" height="8" rx="1" fill={color} />
+        <path d="M42 26 h10 v12 h-4 v-4 h-6 z" fill={accent} />
+      </svg>
+    )
+  }
+
+  if (piece.variant === 'lock-clip' || piece.variant === 'rod-end-clip') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <path d="M20 24 h8 v16 h-8 a8 8 0 0 1 0-16z" fill={color} />
+        <rect x="28" y="28" width="18" height="8" rx="1" fill={accent} />
+      </svg>
+    )
+  }
+
+  if (piece.variant === 'hinge') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <circle cx="32" cy="32" r="5" fill={accent} />
+        <rect x="12" y="28" width="16" height="8" rx="2" fill={color} />
+        <rect x="36" y="28" width="16" height="8" rx="2" fill={color} />
+      </svg>
+    )
+  }
+
+  if (piece.variant === 'end-cap') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <rect x="24" y="20" width="16" height="24" rx="3" fill={color} />
+        <circle cx="32" cy="32" r="5" fill="#1a1b1e" opacity="0.3" />
+      </svg>
+    )
+  }
+
+  if (piece.variant === 'ball-clip' || piece.variant === 'socket-clip') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <rect x="14" y="28" width="20" height="8" rx="2" fill={color} />
+        <circle cx="44" cy="32" r="8" fill={accent} opacity={piece.variant === 'socket-clip' ? 0.35 : 1} />
       </svg>
     )
   }
@@ -94,12 +165,14 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
     )
   }
 
-  if (piece.category === 'connectors') {
+  if (piece.category === 'connectors' || piece.category === 'clips') {
     // Clip dots follow catalog directions (XZ plate) so grey 2-way is 45°, not 180°.
     const clipDirs = piece.ports.filter(
       (p) =>
         p.kind === 'socket' &&
         !p.id.startsWith('center') &&
+        p.id !== 'hole' &&
+        p.id !== 'bore' &&
         Math.abs(p.direction[1]) <= 0.35,
     )
     return (
@@ -123,22 +196,45 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   }
 
   if (piece.category === 'wheels') {
+    const r = piece.id === 'wheel-25' ? 12 : piece.id === 'wheel-hub-50' ? 16 : 18
     return (
       <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
-        <circle cx="32" cy="32" r="18" fill={color} />
-        <circle cx="32" cy="32" r="10" fill={accent} />
+        <circle cx="32" cy="32" r={r} fill={color} />
+        <circle cx="32" cy="32" r={r * 0.55} fill={accent} />
         <circle cx="32" cy="32" r="4" fill="#1a1b1e" opacity="0.35" />
       </svg>
     )
   }
 
-  // gears
-  const teeth = piece.id === 'gear-large' ? 10 : 8
+  if (piece.category === 'panels') {
+    const tri = piece.variant === 'panel-tri'
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        {tri ? (
+          <path d="M32 12 L52 50 L12 50 Z" fill={color} />
+        ) : (
+          <rect x="14" y="14" width="36" height="36" rx="2" fill={color} />
+        )}
+        <circle cx="32" cy="32" r="3" fill={accent} opacity="0.5" />
+      </svg>
+    )
+  }
+
+  if (piece.category === 'chain') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <ellipse cx="24" cy="32" rx="10" ry="7" fill="none" stroke={color} strokeWidth="4" />
+        <ellipse cx="40" cy="32" rx="10" ry="7" fill="none" stroke={accent} strokeWidth="4" />
+      </svg>
+    )
+  }
+
+  const teeth = piece.teeth ?? (piece.id === 'gear-large' ? 10 : 8)
   return (
     <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
       <circle cx="32" cy="32" r="12" fill={color} />
-      {Array.from({ length: teeth }).map((_, i) => {
-        const a = (i / teeth) * Math.PI * 2
+      {Array.from({ length: Math.min(teeth, 16) }).map((_, i) => {
+        const a = (i / Math.min(teeth, 16)) * Math.PI * 2
         return (
           <rect
             key={i}

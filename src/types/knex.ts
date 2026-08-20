@@ -1,4 +1,12 @@
-export type PieceCategory = 'rods' | 'connectors' | 'wheels' | 'gears'
+export type PieceCategory =
+  | 'rods'
+  | 'connectors'
+  | 'clips'
+  | 'spacers'
+  | 'wheels'
+  | 'gears'
+  | 'panels'
+  | 'chain'
 
 /** rod-end ↔ socket; interlock ↔ interlock (connector plates slid together) */
 export type PortKind = 'rod-end' | 'socket' | 'interlock' | 'shaft'
@@ -10,6 +18,17 @@ export type ConnectorVariant =
   | 'double-full' // two fulls joined
   | 'full-half' // full + half joined
   | 'half-half' // two halves joined
+  | 'hole-clip' // 1-way C-clip with free hinge hole
+  | 'lock-clip' // tan interlocking clip (locks wheel/gear on shaft)
+  | 'rod-end-clip' // C-clip with integral rod stub
+  | 'hinge' // two-part hinge assembled
+  | 'ball-clip'
+  | 'socket-clip'
+  | 'end-cap'
+  | 'sleeve' // spacer / axle ring
+  | 'panel-square'
+  | 'panel-tri'
+  | 'chain-link'
 
 export interface PortDef {
   id: string
@@ -29,9 +48,17 @@ export interface CatalogPiece {
   description: string
   color: string
   accent?: string
-  /** Rod length (end-to-end body), ignored for non-rods */
+  /** Rod / chain body length (scene units), or panel tip span */
   length?: number
-  /** Visual / assembly style for connectors */
+  /** Outer radius (scene) for wheels, gears, spacers */
+  radius?: number
+  /** Axial thickness (scene) for spacers, gears, wheels, panels */
+  thickness?: number
+  /** Gear tooth count when applicable */
+  teeth?: number
+  /** Flexible rod (same snap as rigid; visual bend later) */
+  flexi?: boolean
+  /** Visual / assembly style */
   variant?: ConnectorVariant
   ports: PortDef[]
 }

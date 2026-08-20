@@ -7,7 +7,14 @@ import type {
   PortDef,
   WorldPort,
 } from '../types/knex'
-import { getCatalogPiece, isPreassembledHub, SOCKET_RADIUS, SHAFT_END_INSET } from '../data/catalog'
+import {
+  getCatalogPiece,
+  isConnectorLike,
+  isPreassembledHub,
+  isShaftSleeve,
+  SOCKET_RADIUS,
+  SHAFT_END_INSET,
+} from '../data/catalog'
 
 /** Max cursor distance to a free port for snap to engage. */
 export const SNAP_DISTANCE = 1.75
@@ -703,8 +710,10 @@ export function connectorPosesOnRodEnd(
   target: WorldPort,
   workNormal: THREE.Vector3,
 ): ConnectorAimPose[] {
-  if (catalog.category !== 'connectors' || target.kind !== 'rod-end') return []
-  const sockets = catalog.ports.filter((p) => p.kind === 'socket' && !p.id.startsWith('center'))
+  if (!isConnectorLike(catalog) || target.kind !== 'rod-end') return []
+  const sockets = catalog.ports.filter(
+    (p) => p.kind === 'socket' && !p.id.startsWith('center') && p.id !== 'hole' && p.id !== 'bore',
+  )
   const seen = new Set<string>()
   const poses: ConnectorAimPose[] = []
   const work = workNormal.clone().normalize()
@@ -799,9 +808,11 @@ export function connectorPosesOnShaft(
   shaftPoint: THREE.Vector3,
   workNormal: THREE.Vector3,
 ): ConnectorAimPose[] {
-  if (catalog.category !== 'connectors') return []
+  if (!isConnectorLike(catalog)) return []
   const { dir } = rodAxis(rod)
-  const sockets = catalog.ports.filter((p) => p.kind === 'socket' && !p.id.startsWith('center'))
+  const sockets = catalog.ports.filter(
+    (p) => p.kind === 'socket' && !p.id.startsWith('center') && p.id !== 'hole' && p.id !== 'bore',
+  )
   const work = workNormal.clone().normalize()
   const basis = perpendicularTo(dir, new THREE.Vector3().crossVectors(work, dir))
   const seen = new Set<string>()
@@ -828,6 +839,35 @@ export function connectorPosesOnShaft(
   const chosen = planar.length ? planar : poses
   chosen.sort((a, b) => Number(b.inPlane) - Number(a.inPlane))
   return chosen
+}
+
+/** Coaxial spacer / wheel / gear on a rod shaft. */
+export function sleevePosesOnShaft(
+  catalog: CatalogPiece,
+  rod: PlacedPiece,
+  shaftPoint: THREE.Vector3,
+): ConnectorAimPose[] {
+  if (!isShaftSleeve(catalog)) return []
+  const axle =
+    catalog.ports.find((p) => p.id === 'bore' || p.id === 'axle') ??
+    catalog.ports.find((p) => p.kind === 'socket')
+  if (!axle) return []
+  const { dir } = rodAxis(rod)
+  const localDir = new THREE.Vector3(...axle.direction).normalize()
+  const localPos = new THREE.Vector3(...axle.position)
+  const rotation = new THREE.Quaternion().setFromUnitVectors(localDir, dir.clone().normalize())
+  const offset = localPos.clone().applyQuaternion(rotation)
+  const position = shaftPoint.clone().sub(offset)
+  const rot = canonicalRotation(tupleFromQuat(rotation))
+  return [
+    {
+      position: [position.x, position.y, position.z],
+      rotation: rot,
+      localPortId: axle.id,
+      fan: [dir.x, dir.y, dir.z],
+      inPlane: true,
+    },
+  ]
 }
 
 export function nearestRodShaft(
@@ -1477,7 +1517,7 @@ export function nextUsableConnectorPose(
   mode: ConnectorRotateMode = 'in-plane',
 ): NextConnectorPose | null {
   const catalog = getCatalogPiece(piece.catalogId)
-  if (!catalog || catalog.category !== 'connectors') return null
+  if (!catalog || !isConnectorLike(catalog)) return null
 
   const workNormal = connectorWorkNormal(piece, catalog, connections)
   const origin = new THREE.Vector3(...piece.position)

@@ -7,6 +7,7 @@ import {
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
   getCatalogPiece,
+  isConnectorLike,
 } from '../data/catalog'
 import { isCenterSocket, mergeGeometricConnections, quatFromTuple } from './math'
 
@@ -90,7 +91,7 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
     ]
   }
 
-  if (catalog.category === 'connectors') {
+  if (isConnectorLike(catalog)) {
     const hubAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(q)
     const h = HUB_HEIGHT / 2
     const caps: Capsule[] = [
@@ -103,9 +104,10 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
     if (!includeClips) return caps
     for (const port of catalog.ports) {
       if (port.kind !== 'socket' || isCenterSocket(port.id)) continue
+      if (port.id === 'hole' || port.id === 'bore') continue
       const dir = new THREE.Vector3(...port.direction).applyQuaternion(q).normalize()
       caps.push({
-        a: origin.clone().addScaledVector(dir, SOCKET_RADIUS),
+        a: origin.clone().addScaledVector(dir, SOCKET_RADIUS * 0.35),
         b: origin.clone().addScaledVector(dir, SOCKET_RADIUS + CLIP_ARM_LENGTH),
         radius: ROD_HIT,
       })
@@ -113,12 +115,16 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
     return caps
   }
 
-  if (catalog.category === 'wheels') {
-    return [{ a: origin.clone(), b: origin.clone(), radius: 0.71 }]
-  }
-
-  const radius = catalog.id === 'gear-large' ? 0.7 : 0.42
-  return [{ a: origin.clone(), b: origin.clone(), radius }]
+  const radius = catalog.radius ?? 0.4
+  const thick = catalog.thickness ?? HUB_HEIGHT
+  const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
+  return [
+    {
+      a: origin.clone().addScaledVector(axis, -thick / 2),
+      b: origin.clone().addScaledVector(axis, thick / 2),
+      radius: Math.max(radius, ROD_HIT),
+    },
+  ]
 }
 
 function clipCapsulesFor(piece: PlacedPiece): Capsule[] {
