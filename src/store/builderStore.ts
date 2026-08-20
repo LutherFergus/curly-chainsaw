@@ -24,7 +24,8 @@ import {
   nearestInterlockOnPointer,
   nearestRodEnd,
   nextUsableConnectorPose,
-  occupiedPortKeys,
+  occupancyKeys,
+  mergeGeometricConnections,
   SNAP_DISTANCE,
   snapPointToGrid,
   type ConnectorAimPose,
@@ -201,7 +202,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       return
     }
 
-    const occupied = occupiedPortKeys(connections)
+    const occupied = occupancyKeys(pieces, connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
 
     if (hasInterlock(catalog) && view) {
@@ -365,7 +366,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const catalog = getCatalogPiece(selectedCatalogId)
     if (!catalog || catalog.category !== 'rods') return
 
-    const occupied = occupiedPortKeys(connections)
+    const occupied = occupancyKeys(pieces, connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
     const hoverSnap = view ? findRodSnapOnPointer(catalog, freePorts, view) : null
     if (hoverSnap) {
@@ -439,7 +440,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     if (tool !== 'place' || !selectedCatalogId || !slotSteer) return
     const catalog = getCatalogPiece(selectedCatalogId)
     if (!catalog || !hasInterlock(catalog)) return
-    const occupied = occupiedPortKeys(connections)
+    const occupied = occupancyKeys(pieces, connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
     const target =
       freePorts.find(
@@ -486,15 +487,20 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       rotation: ghost.rotation,
     }
 
-    const nextConnections = [...connections]
-    if (ghost.snap) {
-      nextConnections.push({
-        aPieceId: id,
-        aPortId: ghost.snap.localPortId,
-        bPieceId: ghost.snap.targetPieceId,
-        bPortId: ghost.snap.targetPortId,
-      })
-    }
+    const nextConnections = mergeGeometricConnections(
+      [...pieces, nextPiece],
+      ghost.snap
+        ? [
+            ...connections,
+            {
+              aPieceId: id,
+              aPortId: ghost.snap.localPortId,
+              bPieceId: ghost.snap.targetPieceId,
+              bPortId: ghost.snap.targetPortId,
+            },
+          ]
+        : connections,
+    )
 
     const single = placementMode === 'single'
     withHistory(get, set, () => ({
@@ -567,7 +573,8 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const { pieces, connections } = get()
     const piece = pieces.find((p) => p.id === id)
     if (!piece) return
-    const next = nextUsableConnectorPose(piece, pieces, connections, mode)
+    const coupled = mergeGeometricConnections(pieces, connections)
+    const next = nextUsableConnectorPose(piece, pieces, coupled, mode)
     if (!next) return
     const nextPiece = { ...piece, position: next.position, rotation: next.rotation }
     const catalog = getCatalogPiece(piece.catalogId)
