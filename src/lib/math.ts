@@ -156,6 +156,11 @@ export function isCenterSocket(portId: string): boolean {
   return portId.startsWith('center')
 }
 
+/** Coaxial hole a rod shaft can pass through (hub center, spacer/wheel/gear bore). */
+export function isThroughHoleSocket(portId: string): boolean {
+  return isCenterSocket(portId) || portId === 'bore' || portId === 'axle'
+}
+
 export function hasInterlock(catalog: CatalogPiece): boolean {
   return catalog.ports.some((p) => p.kind === 'interlock')
 }
@@ -305,9 +310,15 @@ export function findBestSnap(
   for (const localPort of catalog.ports) {
     for (const target of freePorts) {
       const compatible =
-        (localPort.kind === 'rod-end' && target.kind === 'socket' && !isCenterSocket(target.portId)) ||
-        (localPort.kind === 'shaft' && target.kind === 'socket' && isCenterSocket(target.portId)) ||
-        (localPort.kind === 'socket' && target.kind === 'rod-end') ||
+        (localPort.kind === 'rod-end' &&
+          target.kind === 'socket' &&
+          !isThroughHoleSocket(target.portId)) ||
+        (localPort.kind === 'shaft' &&
+          target.kind === 'socket' &&
+          isCenterSocket(target.portId)) ||
+        (localPort.kind === 'socket' &&
+          target.kind === 'rod-end' &&
+          !isThroughHoleSocket(localPort.id)) ||
         (localPort.kind === 'interlock' && target.kind === 'interlock')
       if (!compatible) continue
 
@@ -915,6 +926,10 @@ export interface SlideJoint {
   maxDelta: number
 }
 
+function isShaftSlideHub(catalog: CatalogPiece): boolean {
+  return catalog.category === 'connectors' || isShaftSleeve(catalog)
+}
+
 function contactOnRod(
   connector: PlacedPiece,
   connectorCatalog: CatalogPiece,
@@ -922,7 +937,7 @@ function contactOnRod(
 ): THREE.Vector3 | null {
   const port = connectorCatalog.ports.find((p) => p.id === portId)
   if (!port) return null
-  if (isCenterSocket(port.id)) return new THREE.Vector3(...connector.position)
+  if (isThroughHoleSocket(port.id)) return new THREE.Vector3(...connector.position)
   if (port.kind === 'socket') {
     return new THREE.Vector3(...worldPort(connector, port, true).position)
   }
@@ -930,8 +945,9 @@ function contactOnRod(
 }
 
 /**
- * Axis slide for a perp clip on a shaft, or a hub with a rod through its center.
- * Rod-end and interlock joints pin the piece, so those cannot slide.
+ * Axis slide for a perp clip on a shaft, a hub with a rod through its center,
+ * or a spacer / wheel / gear on that shaft. Rod-end and interlock joints pin
+ * the piece, so those cannot slide.
  */
 function slideJointFromSeated(
   piece: PlacedPiece,
@@ -939,7 +955,7 @@ function slideJointFromSeated(
   seated: Connection[],
 ): SlideJoint | null {
   const catalog = getCatalogPiece(piece.catalogId)
-  if (!catalog || (catalog.category !== 'rods' && catalog.category !== 'connectors')) return null
+  if (!catalog || (catalog.category !== 'rods' && !isShaftSlideHub(catalog))) return null
   const byId = new Map(pieces.map((p) => [p.id, p]))
 
   for (const conn of seated) {
@@ -973,7 +989,7 @@ function slideJointFromSeated(
     const connector = shaftMine ? partner : piece
     const rodCatalog = getCatalogPiece(rod.catalogId)
     const connCatalog = getCatalogPiece(connector.catalogId)
-    if (rodCatalog?.category !== 'rods' || connCatalog?.category !== 'connectors') continue
+    if (rodCatalog?.category !== 'rods' || !connCatalog || !isShaftSlideHub(connCatalog)) continue
     const clipId = shaftMine ? theirPort.id : myPort.id
     const contact = contactOnRod(connector, connCatalog, clipId)
     if (!contact) continue
@@ -1061,6 +1077,17 @@ export function nearestSlidablePiece(
         const clamped = THREE.MathUtils.clamp(t, -half, half)
         const onRod = origin.clone().addScaledVector(dir, clamped)
         dist = Math.min(dist, ray.distanceToPoint(onRod))
+      }
+    } else if (catalog && isShaftSleeve(catalog)) {
+      const axis = new THREE.Vector3(0, 0, 1)
+        .applyQuaternion(quatFromTuple(piece.rotation))
+        .normalize()
+      const t = rayAxisT(ray, pos, axis)
+      if (t != null) {
+        const half = (catalog.thickness ?? 0) / 2
+        const clamped = THREE.MathUtils.clamp(t, -half, half)
+        const onAxis = pos.clone().addScaledVector(axis, clamped)
+        dist = Math.min(dist, ray.distanceToPoint(onAxis))
       }
     }
     if (dist < bestDist) {
@@ -1164,7 +1191,11 @@ function portKey(pieceId: string, portId: string): string {
 const COUPLE_DIST = 0.11
 
 function isClipSocketPort(port: WorldPort): boolean {
-  return port.kind === 'socket' && !isCenterSocket(port.portId)
+  return port.kind === 'socket' && !isThroughHoleSocket(port.portId)
+}
+
+function isThroughHoleWorldPort(port: WorldPort): boolean {
+  return port.kind === 'socket' && isThroughHoleSocket(port.portId)
 }
 
 function distPointToAxis(
@@ -1181,8 +1212,8 @@ function distPointToAxis(
 
 function worldPortsCompatible(a: WorldPort, b: WorldPort): boolean {
   if (a.kind === 'interlock' && b.kind === 'interlock') return true
-  if (a.kind === 'rod-end' && b.kind === 'socket') return !isCenterSocket(b.portId)
-  if (a.kind === 'socket' && b.kind === 'rod-end') return !isCenterSocket(a.portId)
+  if (a.kind === 'rod-end' && b.kind === 'socket') return !isThroughHoleSocket(b.portId)
+  if (a.kind === 'socket' && b.kind === 'rod-end') return !isThroughHoleSocket(a.portId)
   if (a.kind === 'shaft' && b.kind === 'socket') return true
   if (a.kind === 'socket' && b.kind === 'shaft') return true
   return false
@@ -1197,8 +1228,8 @@ function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
   if (
     a.kind === 'shaft' ||
     b.kind === 'shaft' ||
-    isCenterSocket(a.portId) ||
-    isCenterSocket(b.portId)
+    isThroughHoleSocket(a.portId) ||
+    isThroughHoleSocket(b.portId)
   ) {
     return Math.abs(dot) > 0.9
   }
@@ -1206,12 +1237,13 @@ function worldDirectionsMatch(a: WorldPort, b: WorldPort): boolean {
 }
 
 function pairDistance(a: WorldPort, b: WorldPort): number {
-  const shaftClip =
-    (a.kind === 'shaft' && isClipSocketPort(b)) || (b.kind === 'shaft' && isClipSocketPort(a))
-  if (shaftClip) {
+  const shaftMate =
+    (a.kind === 'shaft' && (isClipSocketPort(b) || isThroughHoleWorldPort(b))) ||
+    (b.kind === 'shaft' && (isClipSocketPort(a) || isThroughHoleWorldPort(a)))
+  if (shaftMate) {
     const shaft = a.kind === 'shaft' ? a : b
-    const clip = a.kind === 'shaft' ? b : a
-    return distPointToAxis(clip.position, shaft.position, shaft.direction)
+    const mate = a.kind === 'shaft' ? b : a
+    return distPointToAxis(mate.position, shaft.position, shaft.direction)
   }
   return new THREE.Vector3(...a.position).distanceTo(new THREE.Vector3(...b.position))
 }
@@ -1266,17 +1298,17 @@ export function occupancyKeys(pieces: PlacedPiece[], connections: Connection[]):
 
 function portsCompatible(local: PortDef, target: WorldPort): boolean {
   if (local.kind === 'interlock' && target.kind === 'interlock') return true
-  if (local.kind === 'rod-end' && target.kind === 'socket') return !isCenterSocket(target.portId)
-  if (local.kind === 'socket' && target.kind === 'rod-end') return !isCenterSocket(local.id)
-  if (local.kind === 'shaft' && target.kind === 'socket') return isCenterSocket(target.portId)
-  if (local.kind === 'socket' && target.kind === 'shaft') return !isCenterSocket(local.id)
+  if (local.kind === 'rod-end' && target.kind === 'socket') return !isThroughHoleSocket(target.portId)
+  if (local.kind === 'socket' && target.kind === 'rod-end') return !isThroughHoleSocket(local.id)
+  if (local.kind === 'shaft' && target.kind === 'socket') return isThroughHoleSocket(target.portId)
+  if (local.kind === 'socket' && target.kind === 'shaft') return true
   return false
 }
 
 function directionsMatch(local: PortDef, a: THREE.Vector3, b: THREE.Vector3): boolean {
   const dot = a.dot(b)
   if (local.kind === 'interlock') return Math.abs(dot) < POSE_DIR_PERP
-  if (local.kind === 'shaft' || (local.kind === 'socket' && isCenterSocket(local.id))) {
+  if (local.kind === 'shaft' || (local.kind === 'socket' && isThroughHoleSocket(local.id))) {
     return Math.abs(dot) > 0.9
   }
   if (local.kind === 'socket') {
