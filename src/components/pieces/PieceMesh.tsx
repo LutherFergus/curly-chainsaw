@@ -483,51 +483,79 @@ function ConnectorMesh({
   )
 }
 
+function makeAnnulusGeometry(outerR: number, innerR: number, depth: number): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape()
+  shape.absarc(0, 0, outerR, 0, Math.PI * 2, false)
+  const hole = new THREE.Path()
+  hole.absarc(0, 0, Math.min(innerR, outerR * 0.92), 0, Math.PI * 2, true)
+  shape.holes.push(hole)
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 28,
+  })
+  // Center on origin; thickness along Z (axle axis for sleeves/wheels/gears).
+  geo.translate(0, 0, -depth / 2)
+  return geo
+}
+
+function AnnulusMesh({
+  outerR,
+  innerR,
+  depth,
+  mat,
+  color,
+}: {
+  outerR: number
+  innerR: number
+  depth: number
+  mat: MatProps
+  color?: string
+}) {
+  const geo = useMemo(
+    () => makeAnnulusGeometry(outerR, innerR, depth),
+    [outerR, innerR, depth],
+  )
+  return (
+    <mesh geometry={geo}>
+      <Plastic mat={mat} color={color} />
+    </mesh>
+  )
+}
+
 function SleeveMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const r = catalog.radius ?? SPACER_OUTER_RADIUS
   const t = catalog.thickness ?? BLUE_SPACER
-  const hole = ROD_RADIUS_SCENE * 1.05
-  return (
-    <group>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[r, r, t, 24]} />
-        <Plastic mat={mat} />
-      </mesh>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[hole, hole, t * 1.05, 16]} />
-        <meshStandardMaterial
-          color="#141518"
-          roughness={0.8}
-          transparent={mat.transparent}
-          opacity={mat.opacity * 0.35}
-          depthWrite={false}
-        />
-      </mesh>
-    </group>
-  )
+  const hole = ROD_RADIUS_SCENE * 1.02
+  return <AnnulusMesh outerR={r} innerR={hole} depth={t} mat={mat} />
 }
 
 function WheelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const r = catalog.radius ?? mm(25) / 2
   const t = catalog.thickness ?? mm(WHEEL_THICK_MM)
-  const hubR = Math.min(r * 0.35, mm(WHEEL_50_OD_MM) / 4)
+  const hubR = Math.min(r * 0.38, mm(WHEEL_50_OD_MM) / 4)
+  const bore = ROD_RADIUS_SCENE * 1.02
   const isTire = catalog.id === 'wheel-tire'
   return (
     <group>
-      {isTire && (
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[r * 0.78, r * 0.22, 12, 28]} />
-          <Plastic mat={mat} />
-        </mesh>
+      {isTire ? (
+        <>
+          {/* Solid tire volume (torus tube) + solid hub annulus */}
+          <mesh>
+            <torusGeometry args={[r * 0.78, r * 0.22, 14, 32]} />
+            <Plastic mat={mat} />
+          </mesh>
+          <AnnulusMesh
+            outerR={hubR * 1.45}
+            innerR={bore}
+            depth={t}
+            mat={mat}
+            color={catalog.accent ?? mat.color}
+          />
+        </>
+      ) : (
+        <AnnulusMesh outerR={r} innerR={bore} depth={t} mat={mat} />
       )}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[isTire ? hubR * 1.4 : r, isTire ? hubR * 1.4 : r, t, 28]} />
-        <Plastic mat={mat} color={isTire ? (catalog.accent ?? mat.color) : mat.color} />
-      </mesh>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[ROD_RADIUS_SCENE * 1.05, ROD_RADIUS_SCENE * 1.05, t * 1.1, 14]} />
-        <meshStandardMaterial color="#141518" roughness={0.85} transparent opacity={0.4} depthWrite={false} />
-      </mesh>
       {!isTire &&
         catalog.id === 'wheel-hub-50' &&
         Array.from({ length: 6 }).map((_, i) => {
@@ -538,7 +566,7 @@ function WheelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
               position={[Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, 0]}
               rotation={[0, 0, a]}
             >
-              <boxGeometry args={[r * 0.45, mm(1.5), t * 0.7]} />
+              <boxGeometry args={[r * 0.42, mm(2.2), t * 0.85]} />
               <Plastic mat={mat} color={catalog.accent ?? mat.color} />
             </mesh>
           )
@@ -552,29 +580,24 @@ function GearMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const t = catalog.thickness ?? mm(GEAR_SMALL_THICK_MM)
   const teeth = catalog.teeth ?? 14
   const crown = catalog.id === 'gear-crown' || catalog.id === 'gear-large'
+  const bore = ROD_RADIUS_SCENE * 1.02
+  const bodyR = r * 0.72
   return (
     <group>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[r * 0.72, r * 0.72, t, 28]} />
-        <Plastic mat={mat} />
-      </mesh>
+      <AnnulusMesh outerR={bodyR} innerR={bore} depth={t} mat={mat} />
       {Array.from({ length: teeth }).map((_, i) => {
         const a = (i / teeth) * Math.PI * 2
         return (
           <mesh
             key={i}
-            position={[Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86, crown ? t * 0.15 : 0]}
+            position={[Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86, crown ? t * 0.12 : 0]}
             rotation={[0, 0, a]}
           >
-            <boxGeometry args={[r * 0.18, r * 0.16, crown ? t * 1.15 : t * 0.95]} />
+            <boxGeometry args={[r * 0.18, r * 0.16, crown ? t * 1.2 : t]} />
             <Plastic mat={mat} />
           </mesh>
         )
       })}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[ROD_RADIUS_SCENE * 1.05, ROD_RADIUS_SCENE * 1.05, t * 1.15, 14]} />
-        <meshStandardMaterial color="#141518" roughness={0.85} transparent opacity={0.4} depthWrite={false} />
-      </mesh>
     </group>
   )
 }
@@ -584,31 +607,32 @@ function PanelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const thick = catalog.thickness ?? mm(PANEL_THICK_MM)
   const tri = catalog.variant === 'panel-tri'
   const tip = SOCKET_RADIUS * 0.85
+
+  const bodyGeo = useMemo(() => {
+    if (!tri) {
+      const geo = new THREE.BoxGeometry(side, thick, side)
+      return geo
+    }
+    const shape = new THREE.Shape()
+    const h = side / 2
+    shape.moveTo(0, h)
+    shape.lineTo(h, -h)
+    shape.lineTo(-h, -h)
+    shape.closePath()
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: thick,
+      bevelEnabled: false,
+    })
+    geo.translate(0, 0, -thick / 2)
+    geo.rotateX(-Math.PI / 2)
+    return geo
+  }, [side, thick, tri])
+
   return (
     <group>
-      {tri ? (
-        <mesh rotation={[-Math.PI / 2, 0, 0]}>
-          <shapeGeometry
-            args={[
-              (() => {
-                const s = new THREE.Shape()
-                const h = side / 2
-                s.moveTo(0, h)
-                s.lineTo(h, -h)
-                s.lineTo(-h, -h)
-                s.closePath()
-                return s
-              })(),
-            ]}
-          />
-          <Plastic mat={mat} />
-        </mesh>
-      ) : (
-        <mesh>
-          <boxGeometry args={[side, thick, side]} />
-          <Plastic mat={mat} />
-        </mesh>
-      )}
+      <mesh geometry={bodyGeo}>
+        <Plastic mat={mat} />
+      </mesh>
       {catalog.ports
         .filter((p) => p.kind === 'rod-end')
         .map((p) => (
@@ -621,7 +645,7 @@ function PanelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
             ]}
             rotation={[Math.PI / 2, 0, Math.atan2(p.direction[0], p.direction[2])]}
           >
-            <cylinderGeometry args={[ROD_RADIUS_SCENE * 0.85, ROD_RADIUS_SCENE * 0.85, tip, 10]} />
+            <cylinderGeometry args={[ROD_RADIUS_SCENE * 0.85, ROD_RADIUS_SCENE * 0.85, tip, 12]} />
             <Plastic mat={mat} color={catalog.accent ?? mat.color} />
           </mesh>
         ))}
@@ -633,14 +657,15 @@ function ChainMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const len = catalog.length ?? mm(20)
   const r = catalog.radius ?? mm(5)
   const t = catalog.thickness ?? mm(4)
+  // Chain links are solid toroidal plastic tubes.
   return (
     <group>
       <mesh rotation={[0, 0, Math.PI / 2]}>
-        <torusGeometry args={[r * 0.55, t * 0.35, 8, 16]} />
+        <torusGeometry args={[r * 0.55, t * 0.35, 10, 20]} />
         <Plastic mat={mat} />
       </mesh>
       <mesh position={[0, 0, len * 0.15]} rotation={[0, 0, Math.PI / 2]}>
-        <torusGeometry args={[r * 0.45, t * 0.3, 8, 14]} />
+        <torusGeometry args={[r * 0.45, t * 0.3, 10, 18]} />
         <Plastic mat={mat} color={catalog.accent ?? mat.color} />
       </mesh>
     </group>
@@ -666,40 +691,25 @@ export function PieceMesh({
   }
 
   if (catalog.category === 'rods') {
+    // Same approach as the rod-diameter agent: solid constant-Ø shaft between end detents.
     const length = catalog.length ?? 1
-    const coreRadius = ROD_RADIUS_SCENE * 0.42
-    const finWidth = ROD_RADIUS_SCENE * 0.62
-    const finDepth = ROD_RADIUS_SCENE * 0.28
+    const shaftRadius = ROD_RADIUS_SCENE
     const flangeRadius = mm(8.2) / 2
     const flangeThickness = mm(1.4)
     const grooveRadius = mm(4.8) / 2
     const grooveLength = mm(1.6)
-    const shoulderLength = mm(3.2)
-    const shoulderRadius = mm(6.0) / 2
-    const endStack = flangeThickness + grooveLength + shoulderLength
+    const endStack = flangeThickness + grooveLength
     const shaftLength = Math.max(mm(2), length - endStack * 2)
-    const flexi = Boolean(catalog.flexi)
     return (
       <group>
         <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[coreRadius, coreRadius, shaftLength, 16]} />
+          <cylinderGeometry args={[shaftRadius, shaftRadius, shaftLength, 20]} />
           <Plastic mat={mat} />
         </mesh>
-        {[
-          [finWidth, finDepth],
-          [finDepth, finWidth],
-        ].map(([w, h], index) => (
-          <mesh key={index} scale={flexi ? [1, 1, 1] : [1, 1, 1]}>
-            <boxGeometry args={[w, h * (flexi ? 0.7 : 1), shaftLength]} />
-            <Plastic mat={mat} />
-          </mesh>
-        ))}
         {([-1, 1] as const).map((side) => {
           const end = (side * length) / 2
           const flangeCenter = end - side * (flangeThickness / 2)
           const grooveCenter = end - side * (flangeThickness + grooveLength / 2)
-          const shoulderCenter =
-            end - side * (flangeThickness + grooveLength + shoulderLength / 2)
           return (
             <group key={side}>
               <mesh position={[0, 0, flangeCenter]} rotation={[Math.PI / 2, 0, 0]}>
@@ -709,12 +719,6 @@ export function PieceMesh({
               <mesh position={[0, 0, grooveCenter]} rotation={[Math.PI / 2, 0, 0]}>
                 <cylinderGeometry args={[grooveRadius, grooveRadius, grooveLength, 16]} />
                 <Plastic mat={mat} color={catalog.accent ?? catalog.color} />
-              </mesh>
-              <mesh position={[0, 0, shoulderCenter]} rotation={[Math.PI / 2, 0, 0]}>
-                <cylinderGeometry
-                  args={[shoulderRadius, shoulderRadius, shoulderLength, 16]}
-                />
-                <Plastic mat={mat} />
               </mesh>
             </group>
           )
