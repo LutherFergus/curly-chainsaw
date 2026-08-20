@@ -117,7 +117,7 @@ function GhostPiece() {
 
   useFrame((_, dt) => {
     pulse.current += dt
-    if (group.current && ghost?.snap) {
+    if (group.current && ghost?.snap && !ghost.collision) {
       const s = 1 + Math.sin(pulse.current * 8) * 0.02
       group.current.scale.setScalar(s)
     } else if (group.current) {
@@ -129,14 +129,15 @@ function GhostPiece() {
   const catalog = getCatalogPiece(ghost.catalogId)
   if (!catalog) return null
   const aiming = Boolean(rodAim)
+  const blocked = ghost.collision
 
   return (
     <group ref={group} position={ghost.position} quaternion={ghost.rotation}>
       <PieceMesh
         catalog={catalog}
-        opacity={aiming ? 0.82 : 0.55}
-        emissive={ghost.snap ? '#69db7c' : '#74c0fc'}
-        emissiveIntensity={ghost.snap ? (aiming ? 0.5 : 0.35) : 0.12}
+        opacity={blocked ? 0.42 : aiming ? 0.82 : 0.55}
+        emissive={blocked ? '#fa5252' : ghost.snap ? '#69db7c' : '#74c0fc'}
+        emissiveIntensity={blocked ? 0.7 : ghost.snap ? (aiming ? 0.5 : 0.35) : 0.12}
       />
     </group>
   )

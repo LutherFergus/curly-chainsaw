@@ -31,6 +31,7 @@ import {
   type ConnectorAimPose,
   type PointerView,
 } from '../lib/math'
+import { ghostCollides, poseCollides, type GhostSnap } from '../lib/collision'
 import * as THREE from 'three'
 
 let nextId = 1
@@ -67,6 +68,7 @@ interface BuilderState {
       targetPieceId: string
       targetPortId: string
     } | null
+    collision: boolean
   } | null
   rodAim: {
     targetPieceId: string
@@ -115,6 +117,23 @@ interface BuilderState {
 
 const identityRotation: [number, number, number, number] = [0, 0, 0, 1]
 const HISTORY_LIMIT = 80
+
+function makeGhost(
+  catalogId: string,
+  position: [number, number, number],
+  rotation: [number, number, number, number],
+  snap: GhostSnap,
+  pieces: PlacedPiece[],
+  connections: Connection[],
+): NonNullable<BuilderState['ghost']> {
+  return {
+    catalogId,
+    position,
+    rotation,
+    snap,
+    collision: ghostCollides(catalogId, position, rotation, pieces, connections, snap),
+  }
+}
 
 function snapshotOf(state: Pick<BuilderState, 'pieces' | 'connections' | 'selectedPieceId'>): Snapshot {
   return {
@@ -210,16 +229,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       if (slotSnap) {
         set({
           rodAim: null,
-          ghost: {
-            catalogId: selectedCatalogId,
-            position: slotSnap.position,
-            rotation: slotSnap.rotation,
-            snap: {
+          ghost: makeGhost(
+            selectedCatalogId,
+            slotSnap.position,
+            slotSnap.rotation,
+            {
               localPortId: slotSnap.localPortId,
               targetPieceId: slotSnap.target.pieceId,
               targetPortId: slotSnap.target.portId,
             },
-          },
+            pieces,
+            connections,
+          ),
         })
         return
       }
@@ -230,16 +251,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       if (hoverSnap) {
         set({
           rodAim: null,
-          ghost: {
-            catalogId: selectedCatalogId,
-            position: hoverSnap.position,
-            rotation: hoverSnap.rotation,
-            snap: {
+          ghost: makeGhost(
+            selectedCatalogId,
+            hoverSnap.position,
+            hoverSnap.rotation,
+            {
               localPortId: hoverSnap.localPortId,
               targetPieceId: hoverSnap.target.pieceId,
               targetPortId: hoverSnap.target.portId,
             },
-          },
+            pieces,
+            connections,
+          ),
         })
         return
       }
@@ -278,16 +301,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
               activeIndex: index,
               dragging: false,
             },
-            ghost: {
-              catalogId: selectedCatalogId,
-              position: pose.position,
-              rotation: pose.rotation,
-              snap: {
+            ghost: makeGhost(
+              selectedCatalogId,
+              pose.position,
+              pose.rotation,
+              {
                 localPortId: pose.localPortId,
                 targetPieceId: rodEnd.pieceId,
                 targetPortId: rodEnd.portId,
               },
-            },
+              pieces,
+              connections,
+            ),
           })
           return
         }
@@ -300,48 +325,54 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
     if (snap) {
       set({
-        ghost: {
-          catalogId: selectedCatalogId,
-          position: snap.position,
-          rotation: snap.rotation,
-          snap: {
+        ghost: makeGhost(
+          selectedCatalogId,
+          snap.position,
+          snap.rotation,
+          {
             localPortId: snap.localPortId,
             targetPieceId: snap.target.pieceId,
             targetPortId: snap.target.portId,
           },
-        },
+          pieces,
+          connections,
+        ),
       })
       return
     }
 
     const grid = snapPointToGrid(point, 0.35)
     set({
-      ghost: {
-        catalogId: selectedCatalogId,
-        position: [grid.x, grid.y, grid.z],
-        rotation: identityRotation,
-        snap: null,
-      },
+      ghost: makeGhost(
+        selectedCatalogId,
+        [grid.x, grid.y, grid.z],
+        identityRotation,
+        null,
+        pieces,
+        connections,
+      ),
     })
   },
 
   aimRodPose: (index) => {
-    const { rodAim, selectedCatalogId } = get()
+    const { rodAim, selectedCatalogId, pieces, connections } = get()
     if (!rodAim || !selectedCatalogId) return
     const pose = rodAim.poses[index]
     if (!pose) return
     set({
       rodAim: { ...rodAim, activeIndex: index },
-      ghost: {
-        catalogId: selectedCatalogId,
-        position: pose.position,
-        rotation: pose.rotation,
-        snap: {
+      ghost: makeGhost(
+        selectedCatalogId,
+        pose.position,
+        pose.rotation,
+        {
           localPortId: pose.localPortId,
           targetPieceId: rodAim.targetPieceId,
           targetPortId: rodAim.targetPortId,
         },
-      },
+        pieces,
+        connections,
+      ),
     })
   },
 
@@ -371,16 +402,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const hoverSnap = view ? findRodSnapOnPointer(catalog, freePorts, view) : null
     if (hoverSnap) {
       set({
-        ghost: {
-          catalogId: selectedCatalogId,
-          position: hoverSnap.position,
-          rotation: hoverSnap.rotation,
-          snap: {
+        ghost: makeGhost(
+          selectedCatalogId,
+          hoverSnap.position,
+          hoverSnap.rotation,
+          {
             localPortId: hoverSnap.localPortId,
             targetPieceId: hoverSnap.target.pieceId,
             targetPortId: hoverSnap.target.portId,
           },
-        },
+          pieces,
+          connections,
+        ),
       })
       return
     }
@@ -391,38 +424,44 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       const locked = axialSnapIfNearSocket(catalog, aimed, freePorts)
       if (locked) {
         set({
-          ghost: {
-            catalogId: selectedCatalogId,
-            position: locked.position,
-            rotation: locked.rotation,
-            snap: {
+          ghost: makeGhost(
+            selectedCatalogId,
+            locked.position,
+            locked.rotation,
+            {
               localPortId: locked.localPortId,
               targetPieceId: locked.target.pieceId,
               targetPortId: locked.target.portId,
             },
-          },
+            pieces,
+            connections,
+          ),
         })
         return
       }
       set({
-        ghost: {
-          catalogId: selectedCatalogId,
-          position: aimed.position,
-          rotation: aimed.rotation,
-          snap: null,
-        },
+        ghost: makeGhost(
+          selectedCatalogId,
+          aimed.position,
+          aimed.rotation,
+          null,
+          pieces,
+          connections,
+        ),
       })
       return
     }
 
     const grid = snapPointToGrid(tip, 0.35)
     set({
-      ghost: {
-        catalogId: selectedCatalogId,
-        position: [grid.x, grid.y, grid.z],
-        rotation: identityRotation,
-        snap: null,
-      },
+      ghost: makeGhost(
+        selectedCatalogId,
+        [grid.x, grid.y, grid.z],
+        identityRotation,
+        null,
+        pieces,
+        connections,
+      ),
     })
   },
 
@@ -454,16 +493,18 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const snap = snapInterlockAimed(catalog, target, aim)
     if (!snap) return
     set({
-      ghost: {
-        catalogId: selectedCatalogId,
-        position: snap.position,
-        rotation: snap.rotation,
-        snap: {
+      ghost: makeGhost(
+        selectedCatalogId,
+        snap.position,
+        snap.rotation,
+        {
           localPortId: snap.localPortId,
           targetPieceId: snap.target.pieceId,
           targetPortId: snap.target.portId,
         },
-      },
+        pieces,
+        connections,
+      ),
     })
   },
 
@@ -478,6 +519,19 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const current = get()
     const { ghost, pieces, connections, placementMode } = current
     if (!ghost) return
+    if (
+      ghost.collision ||
+      ghostCollides(
+        ghost.catalogId,
+        ghost.position,
+        ghost.rotation,
+        pieces,
+        connections,
+        ghost.snap,
+      )
+    ) {
+      return
+    }
 
     const id = createId()
     const nextPiece: PlacedPiece = {
@@ -509,7 +563,9 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       selectedPieceId: id,
       menuOpen: true,
       selectedCatalogId: single ? null : ghost.catalogId,
-      ghost: single ? null : { ...ghost, snap: null },
+      ghost: single
+        ? null
+        : makeGhost(ghost.catalogId, ghost.position, ghost.rotation, null, [...pieces, nextPiece], nextConnections),
       rodAim: null,
       rodSteer: null,
       slotSteer: null,
@@ -574,19 +630,28 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const piece = pieces.find((p) => p.id === id)
     if (!piece) return
     const coupled = mergeGeometricConnections(pieces, connections)
-    const next = nextUsableConnectorPose(piece, pieces, coupled, mode)
-    if (!next) return
-    const nextPiece = { ...piece, position: next.position, rotation: next.rotation }
-    const catalog = getCatalogPiece(piece.catalogId)
-    const work = catalog
-      ? connectorWorkNormal(nextPiece, catalog, next.connections)
-      : new THREE.Vector3(0, 1, 0)
-    withHistory(get, set, () => ({
-      pieces: pieces.map((p) => (p.id === id ? nextPiece : p)),
-      connections: next.connections,
-      selectedPieceId: id,
-      workNormal: [work.x, work.y, work.z],
-    }))
+    let probe = piece
+    let probeConns = coupled
+    for (let step = 0; step < 8; step++) {
+      const next = nextUsableConnectorPose(probe, pieces, probeConns, mode)
+      if (!next) return
+      const nextPiece = { ...probe, position: next.position, rotation: next.rotation }
+      if (!poseCollides(nextPiece, pieces, next.connections)) {
+        const catalog = getCatalogPiece(piece.catalogId)
+        const work = catalog
+          ? connectorWorkNormal(nextPiece, catalog, next.connections)
+          : new THREE.Vector3(0, 1, 0)
+        withHistory(get, set, () => ({
+          pieces: pieces.map((p) => (p.id === id ? nextPiece : p)),
+          connections: next.connections,
+          selectedPieceId: id,
+          workNormal: [work.x, work.y, work.z],
+        }))
+        return
+      }
+      probe = nextPiece
+      probeConns = next.connections
+    }
   },
 
   rotateSelectedOpposite: () => {
