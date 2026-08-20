@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { CATALOG, CATEGORY_LABELS, isPreassembledHub } from '../data/catalog'
+import { CATALOG, CATEGORY_LABELS, isHiddenFromPalette } from '../data/catalog'
 import type { PieceCategory } from '../types/knex'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceIcon } from './PieceIcon'
@@ -7,12 +7,10 @@ import { PieceIcon } from './PieceIcon'
 const ORDER: PieceCategory[] = [
   'rods',
   'connectors',
-  'clips',
   'spacers',
   'wheels',
   'gears',
   'panels',
-  'chain',
 ]
 
 function Chevron({ direction }: { direction: 'left' | 'right' }) {
@@ -54,7 +52,7 @@ export function Sidebar() {
       ORDER.map((category) => ({
         category,
         label: CATEGORY_LABELS[category],
-        pieces: CATALOG.filter((p) => p.category === category && !isPreassembledHub(p)),
+        pieces: CATALOG.filter((p) => p.category === category && !isHiddenFromPalette(p)),
       })).filter((section) => section.pieces.length > 0),
     [],
   )

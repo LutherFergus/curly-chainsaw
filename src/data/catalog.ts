@@ -815,6 +815,11 @@ export function isPreassembledHub(piece: CatalogPiece): boolean {
   )
 }
 
+/** Categories kept in data but not shown in the left piece menu. */
+export function isHiddenFromPalette(piece: CatalogPiece): boolean {
+  return piece.category === 'clips' || piece.category === 'chain' || isPreassembledHub(piece)
+}
+
 /** Flat/3D hubs and specialty clips that use C-clip snap (end-on + Perp). */
 export function isConnectorLike(piece: CatalogPiece): boolean {
   return piece.category === 'connectors' || piece.category === 'clips'
