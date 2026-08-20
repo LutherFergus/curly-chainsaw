@@ -36,14 +36,14 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
           d="M12 40 A20 20 0 0 1 52 40 L44 40 A12 12 0 0 0 20 40 Z"
           fill={color}
         />
-        {[0, 45, 90, 135, 180].map((deg, i) => {
+        {[45, 90, 135, 180].map((deg, i) => {
           const a = ((deg - 90) * Math.PI) / 180
           const cx = 32 + Math.cos(a) * 18
           const cy = 40 + Math.sin(a) * 18
           return <circle key={i} cx={cx} cy={cy} r="3.2" fill={accent} />
         })}
         <ellipse cx="32" cy="32" rx="6" ry="14" fill={accent} opacity="0.9" />
-        <rect x="29" y="28" width="6" height="16" rx="1" fill="#1a1b1e" opacity="0.35" />
+        <rect x="42" y="36" width="10" height="8" rx="1" fill="#1a1b1e" opacity="0.45" />
       </svg>
     )
   }
@@ -55,13 +55,13 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
           d="M12 40 A20 20 0 0 1 52 40 L44 40 A12 12 0 0 0 20 40 Z"
           fill={color}
         />
-        {[0, 45, 90, 135, 180].map((deg, i) => {
+        {[45, 90, 135, 180].map((deg, i) => {
           const a = ((deg - 90) * Math.PI) / 180
           const cx = 32 + Math.cos(a) * 18
           const cy = 40 + Math.sin(a) * 18
           return <circle key={i} cx={cx} cy={cy} r="3.2" fill={accent} />
         })}
-        <rect x="28" y="36" width="8" height="10" rx="1" fill="#1a1b1e" opacity="0.35" />
+        <rect x="42" y="36" width="10" height="8" rx="1" fill="#1a1b1e" opacity="0.45" />
       </svg>
     )
   }

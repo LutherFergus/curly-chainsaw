@@ -4,7 +4,6 @@ import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
 import {
   FULL_CLIP_ANGLES,
   HALF_CLIP_ANGLES,
-  HUB_FULL_CLIP_ANGLES,
   HUB_HEIGHT,
   HUB_RADIUS,
   NESTED_FULL_CLIP_ANGLES,
@@ -111,19 +110,17 @@ function quatForClip(direction: [number, number, number]): THREE.Quaternion {
   )
 }
 
-/** Rectangular center notch / rail used to slide connectors together. */
-function InterlockSlot({
-  mat,
-  half = false,
-}: {
-  mat: MatProps
-  half?: boolean
-}) {
-  const slotW = HUB_HEIGHT * 1.04
-  const slotD = half ? 0.22 : 0.38
-  const slotH = HUB_HEIGHT * 1.04
+/**
+ * Open 3D slot at 0° (+Z) — the one place another slotted connector slides in.
+ * Rectangular channel through the plate with snap nubs, open at the outer end.
+ */
+function InterlockSlot({ mat }: { mat: MatProps }) {
+  const slotW = HUB_HEIGHT * 1.08
+  const slotH = HUB_HEIGHT * 1.08
+  const slotD = SOCKET_RADIUS * 0.72
+  const z = SOCKET_RADIUS * 0.38
   return (
-    <group>
+    <group position={[0, 0, z]}>
       <mesh>
         <boxGeometry args={[slotW, slotH, slotD]} />
         <meshStandardMaterial
@@ -134,12 +131,12 @@ function InterlockSlot({
           depthWrite={mat.depthWrite}
         />
       </mesh>
-      {half && (
-        <mesh position={[0, 0, -slotD / 2 - 0.02]}>
-          <boxGeometry args={[slotW * 1.2, slotH * 1.05, 0.05]} />
-          <Plastic mat={mat} />
+      {([-1, 1] as const).map((side) => (
+        <mesh key={side} position={[0, side * (slotH / 2 - 0.022), slotD * 0.12]}>
+          <sphereGeometry args={[0.02, 8, 8]} />
+          <Plastic mat={mat} color="#868e96" />
         </mesh>
-      )}
+      ))}
     </group>
   )
 }
@@ -202,8 +199,8 @@ function ConnectorPlate({
 
       {nested && (
         <mesh renderOrder={1}>
-          {/* After Rx(90): fills the first plate’s slot without a second hub cylinder. */}
-          <boxGeometry args={[hubH * 0.92, hubH * 0.92, hubR * 2 * 0.92]} />
+          {/* After Rz(-90): fills the 0° slot without a second hub cylinder. */}
+          <boxGeometry args={[hubH * 0.92, hubH * 0.92, hubH * 0.92]} />
           <meshStandardMaterial
             color={plateMat.color}
             roughness={plateMat.roughness}
@@ -225,11 +222,11 @@ function ConnectorPlate({
         <Plastic mat={plateMat} />
       </mesh>
 
-      {slotted && !nested && <InterlockSlot mat={plateMat} half={half} />}
+      {slotted && !nested && <InterlockSlot mat={plateMat} />}
 
       {half && !nested && (
-        <mesh position={[0, 0, -0.12]} rotation={[0, 0, 0]}>
-          <boxGeometry args={[0.42, hubH * 0.95, 0.06]} />
+        <mesh position={[-0.12, 0, 0]}>
+          <boxGeometry args={[0.06, hubH * 0.95, 0.42]} />
           <Plastic mat={plateMat} />
         </mesh>
       )}
@@ -254,14 +251,14 @@ function AssembledHub({
 }) {
   const fullColor = '#1c7ed6'
   const halfColor = accent ?? '#adb5bd'
-  /** Second plate stands up through the first plate’s slot (same recipe as grey+blue). */
-  const nestRx: [number, number, number] = [Math.PI / 2, 0, 0]
+  /** Second plate yaws −90° so its hub is +X and both slots share +Z. */
+  const nestYaw: [number, number, number] = [0, 0, -Math.PI / 2]
 
   if (variant === 'double-full') {
     return (
       <group>
-        <ConnectorPlate mat={mat} color={fullColor} angles={HUB_FULL_CLIP_ANGLES} slotted />
-        <group rotation={nestRx}>
+        <ConnectorPlate mat={mat} color={fullColor} angles={FULL_CLIP_ANGLES} slotted />
+        <group rotation={nestYaw}>
           <ConnectorPlate mat={mat} color={fullColor} angles={NESTED_FULL_CLIP_ANGLES} nested />
         </group>
       </group>
@@ -271,8 +268,8 @@ function AssembledHub({
   if (variant === 'full-half') {
     return (
       <group>
-        <ConnectorPlate mat={mat} color={fullColor} angles={HUB_FULL_CLIP_ANGLES} slotted />
-        <group rotation={nestRx}>
+        <ConnectorPlate mat={mat} color={fullColor} angles={FULL_CLIP_ANGLES} slotted />
+        <group rotation={nestYaw}>
           <ConnectorPlate
             mat={mat}
             color={halfColor}
@@ -289,7 +286,7 @@ function AssembledHub({
     return (
       <group>
         <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
-        <group rotation={nestRx}>
+        <group rotation={nestYaw}>
           <ConnectorPlate
             mat={mat}
             color={halfColor}
@@ -358,7 +355,7 @@ function ConnectorMesh({
       mat={mat}
       accent={catalog.accent}
       angles={angles}
-      slotted={catalog.ports.some((p) => p.kind === 'interlock')}
+      slotted={false}
     />
   )
 }
