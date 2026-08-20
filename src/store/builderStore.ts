@@ -15,6 +15,7 @@ import {
   connectorWorkNormal,
   findBestSnap,
   findRodSnapOnPointer,
+  axialSnapIfNearSocket,
   nearestRodEnd,
   nextUsableConnectorPose,
   occupiedPortKeys,
@@ -348,6 +349,22 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const anchor = new THREE.Vector3(...rodSteer.anchor)
     const aimed = aimRodFromAnchor(catalog, anchor, tip, new THREE.Vector3(...workNormal))
     if (aimed) {
+      const locked = axialSnapIfNearSocket(catalog, aimed, freePorts)
+      if (locked) {
+        set({
+          ghost: {
+            catalogId: selectedCatalogId,
+            position: locked.position,
+            rotation: locked.rotation,
+            snap: {
+              localPortId: locked.localPortId,
+              targetPieceId: locked.target.pieceId,
+              targetPortId: locked.target.portId,
+            },
+          },
+        })
+        return
+      }
       set({
         ghost: {
           catalogId: selectedCatalogId,

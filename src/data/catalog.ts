@@ -5,6 +5,9 @@ const ROD_RADIUS = 0.08
 /** Hub center → clip grip distance. */
 export const SOCKET_RADIUS = 0.28
 export const ROD_RADIUS_SCENE = ROD_RADIUS
+/** Plate thickness (= hub diameter) so 90° interlock flats share a cube. */
+export const HUB_RADIUS = 0.11
+export const HUB_HEIGHT = HUB_RADIUS * 2
 
 /** Classic K'NEX rod lengths: center-to-center effective length uses √2 progression (green = 1). */
 const SQRT2 = Math.SQRT2
@@ -62,6 +65,14 @@ function rodBodyLength(effective: number): number {
 export const FULL_CLIP_ANGLES = [0, 45, 90, 135, 180, 225, 270] as const
 /** Half slotted plate: 5 C-clips along a 180° arc. */
 export const HALF_CLIP_ANGLES = [0, 45, 90, 135, 180] as const
+/**
+ * Second plate after Rx(90) nest — skip 90° so the +X clip is not doubled
+ * with the first plate.
+ */
+export const NESTED_HALF_CLIP_ANGLES = [0, 45, 135, 180] as const
+export const NESTED_FULL_CLIP_ANGLES = [0, 45, 135, 180, 225, 270, 315] as const
+/** First plate of a pre-assembled 3D hub (includes the 315° clip). */
+export const HUB_FULL_CLIP_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const
 
 function rodPorts(length: number): PortDef[] {
   const half = length / 2
@@ -92,18 +103,21 @@ function clipsAroundY(angles: readonly number[], prefix: string): PortDef[] {
   })
 }
 
-/** Clips around hub axis Z (second plate after a 90° slide join). */
+/**
+ * Clips around hub axis Z (second plate after Rx(90) nest).
+ * Local clip dir (sin, 0, cos) maps to world (sin, -cos, 0); mouth opens +Z.
+ */
 function clipsAroundZ(angles: readonly number[], prefix: string): PortDef[] {
   const r = SOCKET_RADIUS
   return angles.map((deg, i) => {
     const a = (deg * Math.PI) / 180
     const x = Math.sin(a) * r
-    const y = Math.cos(a) * r
+    const y = -Math.cos(a) * r
     return {
       id: `${prefix}${i}`,
       kind: 'socket' as const,
       position: [x, y, 0] as [number, number, number],
-      direction: [Math.sin(a), Math.cos(a), 0] as [number, number, number],
+      direction: [Math.sin(a), -Math.cos(a), 0] as [number, number, number],
       opening: [0, 0, 1] as [number, number, number],
     }
   })
@@ -153,10 +167,10 @@ const connectors: CatalogPiece[] = [
     id: 'conn-orange-straight',
     name: 'Straight Connector',
     category: 'connectors',
-    description: '180° in-line C-clips. Does not combine with other connectors.',
+    description: '180° in-line C-clips. Slides into a slotted connector at 90°.',
     color: '#fd7e14',
     variant: 'plate',
-    ports: withCenters(clipsAroundY([0, 180], 's'), 'plate'),
+    ports: withCenters([...clipsAroundY([0, 180], 's'), interlockPort()], 'plate'),
   },
   {
     id: 'conn-90',
@@ -216,8 +230,8 @@ const connectors: CatalogPiece[] = [
     variant: 'double-full',
     ports: withCenters(
       [
-        ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'a'),
-        ...clipsAroundZ([0, 45, 90, 135, 180, 225, 270, 315], 'b'),
+        ...clipsAroundY(HUB_FULL_CLIP_ANGLES, 'a'),
+        ...clipsAroundZ(NESTED_FULL_CLIP_ANGLES, 'b'),
       ],
       'double-full',
     ),
@@ -226,14 +240,15 @@ const connectors: CatalogPiece[] = [
     id: 'hub-full-half',
     name: 'Full/Half Combo',
     category: 'connectors',
-    description: 'Full slotted + half slotted joined — 8 options on one axis, 5 on the other.',
+    description:
+      'Full slotted + half slotted nested at 90° — same 3D join as two halves, with a full blue plate.',
     color: '#1c7ed6',
     accent: '#adb5bd',
     variant: 'full-half',
     ports: withCenters(
       [
-        ...clipsAroundY([0, 45, 90, 135, 180, 225, 270, 315], 'full'),
-        ...clipsAroundZ(HALF_CLIP_ANGLES, 'half'),
+        ...clipsAroundY(HUB_FULL_CLIP_ANGLES, 'full'),
+        ...clipsAroundZ(NESTED_HALF_CLIP_ANGLES, 'half'),
       ],
       'full-half',
     ),
@@ -243,14 +258,14 @@ const connectors: CatalogPiece[] = [
     name: 'Half/Half Combo Connector',
     category: 'connectors',
     description:
-      'Two half slotted connectors slid together — 5 options on each of 2 axes, open as a corner.',
+      'Two half slotted connectors nested at 90° — same 3D join as the grey-and-blue combo, both grey.',
     color: '#adb5bd',
     accent: '#868e96',
     variant: 'half-half',
     ports: withCenters(
       [
         ...clipsAroundY(HALF_CLIP_ANGLES, 'a'),
-        ...clipsAroundZ(HALF_CLIP_ANGLES, 'b'),
+        ...clipsAroundZ(NESTED_HALF_CLIP_ANGLES, 'b'),
       ],
       'half-half',
     ),

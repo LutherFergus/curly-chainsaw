@@ -4,6 +4,11 @@ import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
 import {
   FULL_CLIP_ANGLES,
   HALF_CLIP_ANGLES,
+  HUB_FULL_CLIP_ANGLES,
+  HUB_HEIGHT,
+  HUB_RADIUS,
+  NESTED_FULL_CLIP_ANGLES,
+  NESTED_HALF_CLIP_ANGLES,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
 } from '../../data/catalog'
@@ -114,13 +119,12 @@ function InterlockSlot({
   mat: MatProps
   half?: boolean
 }) {
-  const slotW = 0.11
-  const slotD = half ? 0.2 : 0.34
-  const slotH = 0.085
+  const slotW = HUB_HEIGHT * 1.04
+  const slotD = half ? 0.22 : 0.38
+  const slotH = HUB_HEIGHT * 1.04
   return (
     <group>
-      {/* Dark void reading as the through-slot */}
-      <mesh position={[0, 0, half ? -0.05 : -0.02]}>
+      <mesh>
         <boxGeometry args={[slotW, slotH, slotD]} />
         <meshStandardMaterial
           color="#141518"
@@ -130,16 +134,9 @@ function InterlockSlot({
           depthWrite={mat.depthWrite}
         />
       </mesh>
-      {/* Side walls of the notch */}
-      {([-1, 1] as const).map((side) => (
-        <mesh key={side} position={[side * (slotW / 2 + 0.018), 0, half ? -0.04 : -0.01]}>
-          <boxGeometry args={[0.03, slotH * 1.15, slotD * 0.95]} />
-          <Plastic mat={mat} />
-        </mesh>
-      ))}
       {half && (
-        <mesh position={[0, 0, -0.16]}>
-          <boxGeometry args={[slotW * 1.35, slotH * 1.1, 0.05]} />
+        <mesh position={[0, 0, -slotD / 2 - 0.02]}>
+          <boxGeometry args={[slotW * 1.2, slotH * 1.05, 0.05]} />
           <Plastic mat={mat} />
         </mesh>
       )}
@@ -153,6 +150,7 @@ function ConnectorPlate({
   angles,
   half = false,
   slotted = false,
+  nested = false,
   color,
 }: {
   mat: MatProps
@@ -160,11 +158,13 @@ function ConnectorPlate({
   angles: readonly number[]
   half?: boolean
   slotted?: boolean
+  /** Second plate of a 90° nest: webbing in the first plate’s slot, no duplicate hub. */
+  nested?: boolean
   color?: string
 }) {
   const plateMat = color ? { ...mat, color } : mat
-  const hubR = 0.11
-  const hubH = 0.14
+  const hubR = HUB_RADIUS
+  const hubH = HUB_HEIGHT
   const holeR = ROD_RADIUS_SCENE * 1.05
 
   const clips = useMemo(
@@ -179,31 +179,55 @@ function ConnectorPlate({
 
   return (
     <group>
-      <mesh>
-        <cylinderGeometry args={[hubR, hubR, hubH, 22]} />
-        <Plastic mat={plateMat} />
-      </mesh>
-      {([-1, 1] as const).map((side) => (
-        <group key={side}>
-          <mesh position={[0, side * (hubH / 2 + 0.001), 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[holeR, hubR * 0.92, 22]} />
-            <Plastic mat={plateMat} color={accent ?? plateMat.color} />
-          </mesh>
-          <mesh position={[0, side * (hubH / 2 + 0.012), 0]}>
-            <cylinderGeometry args={[hubR * 1.06, hubR * 1.06, 0.02, 22]} />
+      {!nested && (
+        <>
+          <mesh>
+            <cylinderGeometry args={[hubR, hubR, hubH, 22]} />
             <Plastic mat={plateMat} />
           </mesh>
-        </group>
-      ))}
+          {([-1, 1] as const).map((side) => (
+            <group key={side}>
+              <mesh position={[0, side * (hubH / 2 + 0.001), 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[holeR, hubR * 0.92, 22]} />
+                <Plastic mat={plateMat} color={accent ?? plateMat.color} />
+              </mesh>
+              <mesh position={[0, side * (hubH / 2 + 0.012), 0]}>
+                <cylinderGeometry args={[hubR * 1.06, hubR * 1.06, 0.02, 22]} />
+                <Plastic mat={plateMat} />
+              </mesh>
+            </group>
+          ))}
+        </>
+      )}
+
+      {nested && (
+        <mesh renderOrder={1}>
+          {/* After Rx(90): fills the first plate’s slot without a second hub cylinder. */}
+          <boxGeometry args={[hubH * 0.92, hubH * 0.92, hubR * 2 * 0.92]} />
+          <meshStandardMaterial
+            color={plateMat.color}
+            roughness={plateMat.roughness}
+            metalness={plateMat.metalness}
+            transparent={plateMat.transparent}
+            opacity={plateMat.opacity}
+            emissive={plateMat.emissive}
+            emissiveIntensity={plateMat.emissiveIntensity}
+            depthWrite={plateMat.depthWrite}
+            polygonOffset
+            polygonOffsetFactor={-2}
+            polygonOffsetUnits={-2}
+          />
+        </mesh>
+      )}
 
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <torusGeometry args={[0.18, 0.012, 8, 28]} />
         <Plastic mat={plateMat} />
       </mesh>
 
-      {slotted && <InterlockSlot mat={plateMat} half={half} />}
+      {slotted && !nested && <InterlockSlot mat={plateMat} half={half} />}
 
-      {half && (
+      {half && !nested && (
         <mesh position={[0, 0, -0.12]} rotation={[0, 0, 0]}>
           <boxGeometry args={[0.42, hubH * 0.95, 0.06]} />
           <Plastic mat={plateMat} />
@@ -230,23 +254,15 @@ function AssembledHub({
 }) {
   const fullColor = '#1c7ed6'
   const halfColor = accent ?? '#adb5bd'
+  /** Second plate stands up through the first plate’s slot (same recipe as grey+blue). */
+  const nestRx: [number, number, number] = [Math.PI / 2, 0, 0]
 
   if (variant === 'double-full') {
     return (
       <group>
-        <ConnectorPlate
-          mat={mat}
-          color={fullColor}
-          angles={[0, 45, 90, 135, 180, 225, 270, 315]}
-          slotted
-        />
-        <group rotation={[Math.PI / 2, 0, 0]}>
-          <ConnectorPlate
-            mat={mat}
-            color={fullColor}
-            angles={[0, 45, 90, 135, 180, 225, 270, 315]}
-            slotted
-          />
+        <ConnectorPlate mat={mat} color={fullColor} angles={HUB_FULL_CLIP_ANGLES} slotted />
+        <group rotation={nestRx}>
+          <ConnectorPlate mat={mat} color={fullColor} angles={NESTED_FULL_CLIP_ANGLES} nested />
         </group>
       </group>
     )
@@ -255,14 +271,15 @@ function AssembledHub({
   if (variant === 'full-half') {
     return (
       <group>
-        <ConnectorPlate
-          mat={mat}
-          color={fullColor}
-          angles={[0, 45, 90, 135, 180, 225, 270, 315]}
-          slotted
-        />
-        <group rotation={[Math.PI / 2, 0, 0]}>
-          <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
+        <ConnectorPlate mat={mat} color={fullColor} angles={HUB_FULL_CLIP_ANGLES} slotted />
+        <group rotation={nestRx}>
+          <ConnectorPlate
+            mat={mat}
+            color={halfColor}
+            angles={NESTED_HALF_CLIP_ANGLES}
+            half
+            nested
+          />
         </group>
       </group>
     )
@@ -272,8 +289,14 @@ function AssembledHub({
     return (
       <group>
         <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
-        <group rotation={[Math.PI / 2, 0, 0]}>
-          <ConnectorPlate mat={mat} color={halfColor} angles={HALF_CLIP_ANGLES} half slotted />
+        <group rotation={nestRx}>
+          <ConnectorPlate
+            mat={mat}
+            color={halfColor}
+            angles={NESTED_HALF_CLIP_ANGLES}
+            half
+            nested
+          />
         </group>
       </group>
     )
@@ -330,7 +353,14 @@ function ConnectorMesh({
     )
   }
 
-  return <ConnectorPlate mat={mat} accent={catalog.accent} angles={angles} />
+  return (
+    <ConnectorPlate
+      mat={mat}
+      accent={catalog.accent}
+      angles={angles}
+      slotted={catalog.ports.some((p) => p.kind === 'interlock')}
+    />
+  )
 }
 
 export function PieceMesh({

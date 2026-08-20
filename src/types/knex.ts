@@ -42,6 +42,8 @@ export interface WorldPort {
   kind: PortKind
   position: [number, number, number]
   direction: [number, number, number]
+  /** World-space local +Z (slot/rail axis on connectors). */
+  slot: [number, number, number]
   occupied: boolean
 }
 
