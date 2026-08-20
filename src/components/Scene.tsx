@@ -138,6 +138,10 @@ function SnapHints() {
   const connections = useBuilderStore((s) => s.connections)
   const tool = useBuilderStore((s) => s.tool)
   const selectedCatalogId = useBuilderStore((s) => s.selectedCatalogId)
+  const ghost = useBuilderStore((s) => s.ghost)
+
+  const catalog = selectedCatalogId ? getCatalogPiece(selectedCatalogId) : undefined
+  const placingRod = catalog?.category === 'rods'
 
   const freePorts = useMemo(() => {
     if (tool !== 'place' || !selectedCatalogId) return []
@@ -145,26 +149,50 @@ function SnapHints() {
     return allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
   }, [pieces, connections, tool, selectedCatalogId])
 
-  const hints = freePorts.filter((p) => p.kind !== 'shaft')
+  const hints = freePorts.filter((p) => {
+    if (p.kind === 'shaft') return false
+    if (placingRod) return p.kind === 'socket'
+    return true
+  })
   if (!hints.length) return null
 
+  const hoverKey = ghost?.snap ? `${ghost.snap.targetPieceId}:${ghost.snap.targetPortId}` : null
+
   return (
-    <group>
+    <group renderOrder={20}>
       {hints.map((port) => {
+        const key = `${port.pieceId}:${port.portId}`
+        const hovered = key === hoverKey
         const center = port.kind === 'socket' && isCenterSocket(port.portId)
-        const color =
-          port.kind === 'interlock' ? '#ff922b' : center ? '#c0eb75' : port.kind === 'socket' ? '#ffd43b' : '#66d9e8'
-        const emissive =
-          port.kind === 'interlock' ? '#fd7e14' : center ? '#82c91e' : port.kind === 'socket' ? '#fcc419' : '#22b8cf'
+        const color = hovered
+          ? '#69db7c'
+          : port.kind === 'interlock'
+            ? '#ff922b'
+            : center
+              ? '#c0eb75'
+              : port.kind === 'socket'
+                ? '#ffd43b'
+                : '#66d9e8'
+        const emissive = hovered
+          ? '#51cf66'
+          : port.kind === 'interlock'
+            ? '#fd7e14'
+            : center
+              ? '#82c91e'
+              : port.kind === 'socket'
+                ? '#fcc419'
+                : '#22b8cf'
         return (
-          <mesh key={`${port.pieceId}:${port.portId}`} position={port.position}>
-            <sphereGeometry args={[center ? 0.055 : 0.07, 12, 12]} />
+          <mesh key={key} position={port.position} renderOrder={20}>
+            <sphereGeometry args={[hovered ? 0.12 : center ? 0.08 : 0.1, 16, 16]} />
             <meshStandardMaterial
               color={color}
               emissive={emissive}
-              emissiveIntensity={0.4}
+              emissiveIntensity={hovered ? 1.1 : 0.65}
               transparent
-              opacity={0.85}
+              opacity={hovered ? 1 : 0.92}
+              depthTest={false}
+              depthWrite={false}
             />
           </mesh>
         )

@@ -14,8 +14,7 @@ import {
   connectorPosesOnRodEnd,
   connectorWorkNormal,
   findBestSnap,
-  findBestSnapOnRay,
-  findRodConnectorAim,
+  findRodSnapOnPointer,
   nearestRodEnd,
   nextUsableConnectorPose,
   occupiedPortKeys,
@@ -187,9 +186,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
 
     if (catalog.category === 'rods' && view) {
-      const hoverSnap =
-        findRodConnectorAim(catalog, pieces, freePorts, view) ??
-        findBestSnapOnRay(catalog, freePorts, view.ray)
+      const hoverSnap = findRodSnapOnPointer(catalog, freePorts, view)
       if (hoverSnap) {
         set({
           rodAim: null,
@@ -259,7 +256,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
     if (rodAim) set({ rodAim: null })
 
-    const snap = findBestSnap(catalog, freePorts, point)
+    const snap = catalog.category === 'rods' && view ? null : findBestSnap(catalog, freePorts, point)
 
     if (snap) {
       set({
@@ -331,21 +328,17 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
     const occupied = occupiedPortKeys(connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
-    const hoverSnap = view
-      ? (findRodConnectorAim(catalog, pieces, freePorts, view) ??
-        findBestSnapOnRay(catalog, freePorts, view.ray))
-      : null
-    const snap = hoverSnap ?? findBestSnap(catalog, freePorts, tip)
-    if (snap) {
+    const hoverSnap = view ? findRodSnapOnPointer(catalog, freePorts, view) : null
+    if (hoverSnap) {
       set({
         ghost: {
           catalogId: selectedCatalogId,
-          position: snap.position,
-          rotation: snap.rotation,
+          position: hoverSnap.position,
+          rotation: hoverSnap.rotation,
           snap: {
-            localPortId: snap.localPortId,
-            targetPieceId: snap.target.pieceId,
-            targetPortId: snap.target.portId,
+            localPortId: hoverSnap.localPortId,
+            targetPieceId: hoverSnap.target.pieceId,
+            targetPortId: hoverSnap.target.portId,
           },
         },
       })
