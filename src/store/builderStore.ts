@@ -6,16 +6,22 @@ import type {
   PlacementMode,
   PlacedPiece,
   ToolMode,
+  WorldPort,
 } from '../types/knex'
 import { getCatalogPiece } from '../data/catalog'
 import {
+  aimPointOnSlotPlane,
   aimRodFromAnchor,
   allWorldPorts,
   connectorPosesOnRodEnd,
   connectorWorkNormal,
   findBestSnap,
+  findInterlockSnapOnPointer,
+  snapInterlockAimed,
   findRodSnapOnPointer,
   axialSnapIfNearSocket,
+  hasInterlock,
+  nearestInterlockOnPointer,
   nearestRodEnd,
   nextUsableConnectorPose,
   occupiedPortKeys,
@@ -72,6 +78,10 @@ interface BuilderState {
   rodSteer: {
     anchor: [number, number, number]
   } | null
+  slotSteer: {
+    targetPieceId: string
+    targetPortId: string
+  } | null
   selectCatalog: (id: string | null) => void
   setTool: (tool: ToolMode) => void
   setPlacementMode: (mode: PlacementMode) => void
@@ -88,6 +98,9 @@ interface BuilderState {
   beginRodSteer: (anchor: THREE.Vector3) => void
   steerRod: (tip: THREE.Vector3, view?: PointerView) => void
   endRodSteer: () => void
+  beginSlotSteer: (target: WorldPort) => void
+  steerSlot: (view: PointerView) => void
+  endSlotSteer: () => void
   clearGhost: () => void
   placeGhost: () => void
   deleteSelected: () => void
@@ -136,6 +149,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   ghost: null,
   rodAim: null,
   rodSteer: null,
+  slotSteer: null,
 
   selectCatalog: (id) =>
     set({
@@ -146,6 +160,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       ghost: id ? get().ghost : null,
       rodAim: id ? get().rodAim : null,
       rodSteer: id ? get().rodSteer : null,
+      slotSteer: id ? get().slotSteer : null,
     }),
 
   setTool: (tool) =>
@@ -154,6 +169,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       ghost: tool === 'place' ? get().ghost : null,
       rodAim: tool === 'place' ? get().rodAim : null,
       rodSteer: tool === 'place' ? get().rodSteer : null,
+      slotSteer: tool === 'place' ? get().slotSteer : null,
     }),
 
   setPlacementMode: (mode) => set({ placementMode: mode }),
@@ -166,25 +182,47 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
   setToolsOpen: (open) => set({ toolsOpen: open }),
   toggleTools: () => set({ toolsOpen: !get().toolsOpen }),
 
-  selectPiece: (id) => set({ selectedPieceId: id, tool: 'select', rodAim: null, rodSteer: null }),
+  selectPiece: (id) =>
+    set({ selectedPieceId: id, tool: 'select', rodAim: null, rodSteer: null, slotSteer: null }),
 
   updateGhost: (point, view) => {
     const { selectedCatalogId, pieces, connections, tool, rodAim, workNormal } = get()
     if (tool !== 'place' || !selectedCatalogId) {
-      set({ ghost: null, rodAim: null, rodSteer: null })
+      set({ ghost: null, rodAim: null, rodSteer: null, slotSteer: null })
       return
     }
     if (rodAim?.dragging) return
     if (get().rodSteer) return
+    if (get().slotSteer) return
 
     const catalog = getCatalogPiece(selectedCatalogId)
     if (!catalog) {
-      set({ ghost: null, rodAim: null, rodSteer: null })
+      set({ ghost: null, rodAim: null, rodSteer: null, slotSteer: null })
       return
     }
 
     const occupied = occupiedPortKeys(connections)
     const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+
+    if (hasInterlock(catalog) && view) {
+      const slotSnap = findInterlockSnapOnPointer(catalog, freePorts, view)
+      if (slotSnap) {
+        set({
+          rodAim: null,
+          ghost: {
+            catalogId: selectedCatalogId,
+            position: slotSnap.position,
+            rotation: slotSnap.rotation,
+            snap: {
+              localPortId: slotSnap.localPortId,
+              targetPieceId: slotSnap.target.pieceId,
+              targetPortId: slotSnap.target.portId,
+            },
+          },
+        })
+        return
+      }
+    }
 
     if (catalog.category === 'rods' && view) {
       const hoverSnap = findRodSnapOnPointer(catalog, freePorts, view)
@@ -389,9 +427,50 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
 
   endRodSteer: () => set({ rodSteer: null }),
 
+  beginSlotSteer: (target) => {
+    set({
+      slotSteer: { targetPieceId: target.pieceId, targetPortId: target.portId },
+      rodAim: null,
+    })
+  },
+
+  steerSlot: (view) => {
+    const { selectedCatalogId, pieces, connections, tool, slotSteer } = get()
+    if (tool !== 'place' || !selectedCatalogId || !slotSteer) return
+    const catalog = getCatalogPiece(selectedCatalogId)
+    if (!catalog || !hasInterlock(catalog)) return
+    const occupied = occupiedPortKeys(connections)
+    const freePorts = allWorldPorts(pieces, occupied).filter((p) => !p.occupied)
+    const target =
+      freePorts.find(
+        (p) =>
+          p.kind === 'interlock' &&
+          p.pieceId === slotSteer.targetPieceId &&
+          p.portId === slotSteer.targetPortId,
+      ) ?? nearestInterlockOnPointer(freePorts, view)
+    if (!target) return
+    const aim = aimPointOnSlotPlane(target, view.ray)
+    const snap = snapInterlockAimed(catalog, target, aim)
+    if (!snap) return
+    set({
+      ghost: {
+        catalogId: selectedCatalogId,
+        position: snap.position,
+        rotation: snap.rotation,
+        snap: {
+          localPortId: snap.localPortId,
+          targetPieceId: snap.target.pieceId,
+          targetPortId: snap.target.portId,
+        },
+      },
+    })
+  },
+
+  endSlotSteer: () => set({ slotSteer: null }),
+
   clearGhost: () => {
-    if (get().rodAim?.dragging || get().rodSteer) return
-    set({ ghost: null, rodAim: null, rodSteer: null })
+    if (get().rodAim?.dragging || get().rodSteer || get().slotSteer) return
+    set({ ghost: null, rodAim: null, rodSteer: null, slotSteer: null })
   },
 
   placeGhost: () => {
@@ -427,6 +506,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       ghost: single ? null : { ...ghost, snap: null },
       rodAim: null,
       rodSteer: null,
+      slotSteer: null,
       tool: 'place' as const,
     }))
   },
@@ -451,6 +531,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       ghost: null,
       rodAim: null,
       rodSteer: null,
+      slotSteer: null,
       menuOpen: true,
     })),
 
@@ -548,6 +629,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       ghost: null,
       rodAim: null,
       rodSteer: null,
+      slotSteer: null,
     })
   },
 
@@ -564,6 +646,7 @@ export const useBuilderStore = create<BuilderState>((set, get) => ({
       ghost: null,
       rodAim: null,
       rodSteer: null,
+      slotSteer: null,
     })
   },
 }))
