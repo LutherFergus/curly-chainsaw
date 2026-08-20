@@ -87,6 +87,7 @@ function clipsAroundY(angles: readonly number[], prefix: string): PortDef[] {
       kind: 'socket' as const,
       position: [x, 0, z] as [number, number, number],
       direction: [Math.sin(a), 0, Math.cos(a)] as [number, number, number],
+      opening: [0, 1, 0] as [number, number, number],
     }
   })
 }
@@ -103,6 +104,7 @@ function clipsAroundZ(angles: readonly number[], prefix: string): PortDef[] {
       kind: 'socket' as const,
       position: [x, y, 0] as [number, number, number],
       direction: [Math.sin(a), Math.cos(a), 0] as [number, number, number],
+      opening: [0, 0, 1] as [number, number, number],
     }
   })
 }

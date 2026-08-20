@@ -18,6 +18,8 @@ export interface PortDef {
   position: [number, number, number]
   /** Local-space outward direction of the connection */
   direction: [number, number, number]
+  /** Local-space C-clip mouth axis (plate hub). Rods can elevate in this plane. */
+  opening?: [number, number, number]
 }
 
 export interface CatalogPiece {

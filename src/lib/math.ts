@@ -7,7 +7,7 @@ import type {
   PortDef,
   WorldPort,
 } from '../types/knex'
-import { getCatalogPiece } from '../data/catalog'
+import { getCatalogPiece, SOCKET_RADIUS } from '../data/catalog'
 
 /** Max cursor distance to a free port for snap to engage. */
 export const SNAP_DISTANCE = 1.75
@@ -294,6 +294,205 @@ export function findBestSnapOnRay(
   return findBestSnap(catalog, [hovered], new THREE.Vector3(...hovered.position))
 }
 
+export interface PointerView {
+  ray: THREE.Ray
+  camera: THREE.Camera
+  ndc: THREE.Vector2
+}
+
+/** How far past the hub (in projected clip radii) the pointer may orbit. */
+const CONNECTOR_AIM_SCREEN = 8.5
+
+function orthonormalOpening(radial: THREE.Vector3, opening: THREE.Vector3): THREE.Vector3 {
+  const r = radial.clone().normalize()
+  const n = opening.clone().normalize()
+  n.sub(r.clone().multiplyScalar(n.dot(r)))
+  if (n.lengthSq() < 1e-6) {
+    const fallback =
+      Math.abs(r.y) < 0.85 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+    n.copy(fallback).sub(r.clone().multiplyScalar(fallback.dot(r)))
+  }
+  return n.normalize()
+}
+
+/** In-plane, ±45°, and ±90° (top/bottom) in a C-clip’s opening plane. */
+export function clipAimDirections(radial: THREE.Vector3, opening: THREE.Vector3): THREE.Vector3[] {
+  const r = radial.clone().normalize()
+  const n = orthonormalOpening(r, opening)
+  const dirs: THREE.Vector3[] = []
+  for (let k = -2; k <= 2; k++) {
+    const a = k * KNEX_DETENT
+    dirs.push(r.clone().multiplyScalar(Math.cos(a)).add(n.clone().multiplyScalar(Math.sin(a))).normalize())
+  }
+  return dirs
+}
+
+function poseRodFromSocket(
+  catalog: CatalogPiece,
+  target: WorldPort,
+  outward: THREE.Vector3,
+): NonNullable<ReturnType<typeof findBestSnap>> {
+  const half = (catalog.length ?? 1) / 2
+  const dir = outward.clone().normalize()
+  const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir)
+  const center = new THREE.Vector3(...target.position).add(dir.clone().multiplyScalar(half))
+  return {
+    position: [center.x, center.y, center.z],
+    rotation: tupleFromQuat(rotation),
+    localPortId: 'end-a',
+    target,
+    distance: 0,
+  }
+}
+
+function screenElevStep(
+  ndcY: number,
+  minY: number,
+  maxY: number,
+  hubScale: number,
+): number {
+  const pad = hubScale * 0.22
+  if (ndcY > maxY + pad) {
+    const extra = (ndcY - maxY) / hubScale
+    return extra > 2.0 ? 2 : 1
+  }
+  if (ndcY < minY - pad) {
+    const extra = (minY - ndcY) / hubScale
+    return extra > 2.0 ? -2 : -1
+  }
+  return 0
+}
+
+function poseRodOnClip(
+  catalog: CatalogPiece,
+  piece: PlacedPiece,
+  def: CatalogPiece,
+  port: WorldPort,
+  elevStep: number,
+): ReturnType<typeof findBestSnap> {
+  const local = def.ports.find((p) => p.id === port.portId)
+  if (!local) return null
+  const radial = new THREE.Vector3(...port.direction)
+  const opening = new THREE.Vector3(...(local.opening ?? [0, 1, 0]))
+    .applyQuaternion(quatFromTuple(piece.rotation))
+    .normalize()
+  const dirs = clipAimDirections(radial, opening)
+  const dir = dirs[elevStep + 2]
+  if (!dir) return null
+  return poseRodFromSocket(catalog, port, dir)
+}
+
+/**
+ * Aim a rod around a connector in 3D.
+ * Pointer on the clip ring stays in-plane; above the connector is 45°/90° up;
+ * below is 45°/90° down. Hub center is a through-hole snap.
+ */
+export function findRodConnectorAim(
+  catalog: CatalogPiece,
+  pieces: PlacedPiece[],
+  freePorts: WorldPort[],
+  view: PointerView,
+): ReturnType<typeof findBestSnap> {
+  if (catalog.category !== 'rods') return null
+
+  const byId = new Map(pieces.map((p) => [p.id, p]))
+  const portsByPiece = new Map<string, WorldPort[]>()
+  for (const port of freePorts) {
+    if (port.kind !== 'socket') continue
+    const piece = byId.get(port.pieceId)
+    const def = piece ? getCatalogPiece(piece.catalogId) : undefined
+    if (!piece || def?.category !== 'connectors') continue
+    const list = portsByPiece.get(port.pieceId)
+    if (list) list.push(port)
+    else portsByPiece.set(port.pieceId, [port])
+  }
+
+  let bestHub: {
+    piece: PlacedPiece
+    def: CatalogPiece
+    ports: WorldPort[]
+    hubNdc: THREE.Vector3
+    hubScale: number
+    score: number
+    minY: number
+    maxY: number
+  } | null = null
+
+  for (const [pieceId, ports] of portsByPiece) {
+    const piece = byId.get(pieceId)
+    const def = piece ? getCatalogPiece(piece.catalogId) : undefined
+    if (!piece || !def) continue
+    const hub = new THREE.Vector3(...piece.position)
+    const hubNdc = hub.clone().project(view.camera)
+    if (hubNdc.z < -1 || hubNdc.z > 1) continue
+    const edge = hub.clone().add(new THREE.Vector3(SOCKET_RADIUS, 0, 0)).project(view.camera)
+    const hubScale = Math.max(0.018, Math.hypot(edge.x - hubNdc.x, edge.y - hubNdc.y))
+    const dx = view.ndc.x - hubNdc.x
+    const dy = view.ndc.y - hubNdc.y
+    const screenDist = Math.hypot(dx, dy)
+    if (screenDist > hubScale * CONNECTOR_AIM_SCREEN) continue
+    const along = hub.clone().sub(view.ray.origin).dot(view.ray.direction)
+    if (along < 0.12) continue
+    let minY = hubNdc.y
+    let maxY = hubNdc.y
+    for (const port of ports) {
+      if (isCenterSocket(port.portId)) continue
+      const p = new THREE.Vector3(...port.position).project(view.camera)
+      minY = Math.min(minY, p.y)
+      maxY = Math.max(maxY, p.y)
+    }
+    const score = screenDist / hubScale
+    if (!bestHub || score < bestHub.score) {
+      bestHub = { piece, def, ports, hubNdc, hubScale, score, minY, maxY }
+    }
+  }
+  if (!bestHub) return null
+
+  const { piece, def, ports, hubScale, minY, maxY } = bestHub
+  const hub = new THREE.Vector3(...piece.position)
+  const closest = new THREE.Vector3()
+  view.ray.closestPointToPoint(hub, closest)
+  const alongHub = closest.clone().sub(view.ray.origin).dot(view.ray.direction)
+  const perpHub = closest.distanceTo(hub)
+  if (perpHub < 0.11 && alongHub > 0.12) {
+    const centers = ports.filter((p) => isCenterSocket(p.portId))
+    const shaft = catalog.ports.find((p) => p.kind === 'shaft')
+    if (centers.length && shaft) {
+      const opening = new THREE.Vector3(0, 1, 0).applyQuaternion(quatFromTuple(piece.rotation))
+      let center = centers[0]
+      let bestAlign = -1
+      for (const c of centers) {
+        const align = Math.abs(opening.dot(new THREE.Vector3(...c.direction)))
+        if (align > bestAlign) {
+          bestAlign = align
+          center = c
+        }
+      }
+      const pose = alignPieceToPort(shaft, center)
+      return { ...pose, localPortId: shaft.id, target: center, distance: 0 }
+    }
+  }
+
+  const clips = ports.filter((p) => !isCenterSocket(p.portId))
+  if (!clips.length) return null
+
+  const elevStep = screenElevStep(view.ndc.y, minY, maxY, hubScale)
+
+  let bestClip = clips[0]
+  let bestClipScore = Number.POSITIVE_INFINITY
+  for (const port of clips) {
+    const p = new THREE.Vector3(...port.position).project(view.camera)
+    const dist = Math.hypot(view.ndc.x - p.x, view.ndc.y - p.y)
+    const score = elevStep === 0 ? dist : Math.abs(view.ndc.x - p.x) + dist * 0.2
+    if (score < bestClipScore) {
+      bestClipScore = score
+      bestClip = port
+    }
+  }
+
+  return poseRodOnClip(catalog, piece, def, bestClip, elevStep)
+}
+
 export interface ConnectorAimPose {
   position: [number, number, number]
   rotation: [number, number, number, number]
@@ -480,7 +679,8 @@ function directionsMatch(local: PortDef, a: THREE.Vector3, b: THREE.Vector3): bo
   if (local.kind === 'shaft' || (local.kind === 'socket' && isCenterSocket(local.id))) {
     return Math.abs(dot) > 0.9
   }
-  return dot < POSE_DIR_OPPOSITE
+  // In-plane clip snaps are opposite; 45°/vertical rods still sit in the C-clip.
+  return dot < POSE_DIR_OPPOSITE || Math.abs(dot) < 0.92
 }
 
 function slotDirection(piece: PlacedPiece): THREE.Vector3 {

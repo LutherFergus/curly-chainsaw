@@ -6,7 +6,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { getCatalogPiece } from '../data/catalog'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceMesh } from './pieces/PieceMesh'
-import { allWorldPorts, isCenterSocket, occupiedPortKeys, pickConnectorAimPose } from '../lib/math'
+import { allWorldPorts, isCenterSocket, occupiedPortKeys, pickConnectorAimPose, type PointerView } from '../lib/math'
 import {
   aimCameraAt,
   captureCameraShot,
@@ -17,6 +17,10 @@ import {
 } from '../lib/orbitBridge'
 
 let skipPlaceClick = false
+
+function viewFromEvent(e: ThreeEvent<PointerEvent | MouseEvent>): PointerView {
+  return { ray: e.ray.clone(), camera: e.camera, ndc: e.pointer.clone() }
+}
 
 function consumePlaceClick() {
   if (!skipPlaceClick) return false
@@ -50,7 +54,7 @@ function PlacedPieces() {
             onPointerMove={(e) => {
               if (tool !== 'place') return
               e.stopPropagation()
-              updateGhost(e.point.clone(), e.ray.clone())
+              updateGhost(e.point.clone(), viewFromEvent(e))
             }}
             onPointerDown={(e) => {
               if (placing) return
@@ -80,7 +84,7 @@ function PlacedPieces() {
               if (consumePlaceClick()) return
               e.stopPropagation()
               if (!placing) return
-              updateGhost(e.point.clone(), e.ray.clone())
+              updateGhost(e.point.clone(), viewFromEvent(e))
               placeGhost()
             }}
           >
@@ -178,14 +182,14 @@ function PlacementPlane() {
 
   const onMove = (e: ThreeEvent<PointerEvent>) => {
     if (tool !== 'place') return
-    updateGhost(e.point.clone(), e.ray.clone())
+    updateGhost(e.point.clone(), viewFromEvent(e))
   }
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     if (consumePlaceClick()) return
     e.stopPropagation()
     if (tool === 'place') {
-      updateGhost(e.point.clone(), e.ray.clone())
+      updateGhost(e.point.clone(), viewFromEvent(e))
       placeGhost()
       return
     }
@@ -216,6 +220,8 @@ function CursorTracker() {
   const lastPoint = useRef(new THREE.Vector3(Number.NaN, 0, 0))
   const lastDir = useRef(new THREE.Vector3(Number.NaN, 0, 0))
 
+  const lastNdc = useRef(new THREE.Vector2(Number.NaN, 0))
+
   useFrame(() => {
     const rodAim = useBuilderStore.getState().rodAim
     if (rodAim?.dragging || useBuilderStore.getState().rodSteer) return
@@ -227,14 +233,16 @@ function CursorTracker() {
       const tip = new THREE.Vector3(...rodAim.tip)
       ray.closestPointToPoint(tip, sample)
     } else if (!ray.intersectPlane(plane, sample)) {
-      return
+      sample.copy(ray.origin).addScaledVector(ray.direction, 4)
     }
     const moved = lastPoint.current.distanceToSquared(sample) > 1e-6
     const turned = lastDir.current.distanceToSquared(ray.direction) > 1e-8
-    if (!moved && !turned) return
+    const shifted = lastNdc.current.distanceToSquared(pointer) > 1e-8
+    if (!moved && !turned && !shifted) return
     lastPoint.current.copy(sample)
     lastDir.current.copy(ray.direction)
-    updateGhost(sample.clone(), ray.clone())
+    lastNdc.current.copy(pointer)
+    updateGhost(sample.clone(), { ray: ray.clone(), camera, ndc: pointer.clone() })
   })
 
   return null
@@ -385,11 +393,11 @@ function RodAimGestures() {
   return null
 }
 
-function pointerRay(
+function pointerView(
   event: PointerEvent,
   canvas: HTMLCanvasElement,
   camera: THREE.Camera,
-): THREE.Ray {
+): PointerView {
   const rect = canvas.getBoundingClientRect()
   const ndc = new THREE.Vector2(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -397,7 +405,7 @@ function pointerRay(
   )
   const raycaster = new THREE.Raycaster()
   raycaster.setFromCamera(ndc, camera)
-  return raycaster.ray.clone()
+  return { ray: raycaster.ray.clone(), camera, ndc }
 }
 
 function pointerToWorkPoint(
@@ -406,7 +414,7 @@ function pointerToWorkPoint(
   camera: THREE.Camera,
   workNormal: [number, number, number],
 ): THREE.Vector3 | null {
-  const ray = pointerRay(event, canvas, camera)
+  const { ray } = pointerView(event, canvas, camera)
   const plane = new THREE.Plane()
   plane.setFromNormalAndCoplanarPoint(
     new THREE.Vector3(...workNormal).normalize(),
@@ -434,12 +442,12 @@ function RodSteerGestures() {
       if (event.button !== 0 && event.pointerType === 'mouse') return
       if (!placingRod()) return
       const state = useBuilderStore.getState()
-      const ray = pointerRay(event, canvas, camera)
+      const view = pointerView(event, canvas, camera)
       const hit = pointerToWorkPoint(event, canvas, camera, state.workNormal)
-      if (!hit) return
+      const fallback = new THREE.Vector3(0, 0.35, 0)
       dragging.current = true
-      state.beginRodSteer(hit)
-      state.steerRod(hit, ray)
+      state.beginRodSteer(hit ?? fallback)
+      state.steerRod(hit ?? fallback, view)
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation()
@@ -449,9 +457,9 @@ function RodSteerGestures() {
       if (!dragging.current) return
       const state = useBuilderStore.getState()
       if (!state.rodSteer) return
-      const ray = pointerRay(event, canvas, camera)
+      const view = pointerView(event, canvas, camera)
       const hit = pointerToWorkPoint(event, canvas, camera, state.workNormal)
-      if (hit) state.steerRod(hit, ray)
+      state.steerRod(hit ?? new THREE.Vector3(...state.rodSteer.anchor), view)
     }
 
     const onUp = () => {
