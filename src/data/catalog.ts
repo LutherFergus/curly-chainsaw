@@ -49,10 +49,21 @@ export const SILVER_SPACER = mm(SILVER_SPACER_MM)
 /** Spacer outer radius — sits on the rod, clear of clip arms. */
 export const SPACER_OUTER_RADIUS = mm(11.5)
 
-/** Gear / wheel sizes from User Group + MIT spacer units. */
-export const GEAR_SMALL_OD_MM = BLUE_SPACER_MM * 8 // ~25 mm (14 teeth)
+/**
+ * Classic K’NEX standard gear family (14 / 34 / 82), ~module 1.6 / ~5 mm circular pitch.
+ * ODs are published nominal envelopes; pitch Ø ≈ teeth × 1.6 mm.
+ */
+export const GEAR_MODULE_MM = 1.6
+export const GEAR_SMALL_TEETH = 14
+export const GEAR_MEDIUM_TEETH = 34
+export const GEAR_LARGE_TEETH = 82
+export const GEAR_MULTI_INNER_TEETH = 64
+export const GEAR_SMALL_OD_MM = 25
 export const GEAR_MEDIUM_OD_MM = 55
 export const GEAR_LARGE_OD_MM = 130
+/** Multi-track inner ring OD ≈ module × (teeth + 2). */
+export const GEAR_MULTI_INNER_OD_MM = GEAR_MODULE_MM * (GEAR_MULTI_INNER_TEETH + 2)
+/** MIT: small/medium = 4 blue spacers thick; large = 3. */
 export const GEAR_SMALL_THICK_MM = BLUE_SPACER_MM * 4
 export const GEAR_MEDIUM_THICK_MM = BLUE_SPACER_MM * 4
 export const GEAR_LARGE_THICK_MM = BLUE_SPACER_MM * 3
@@ -642,34 +653,56 @@ const gears: CatalogPiece[] = [
     id: 'gear-small',
     name: 'Small Gear',
     category: 'gears',
-    description: '14-tooth small gear (~25 mm). Blue style needs a tan lock clip on the shaft.',
+    description:
+      'Classic 14T spur (~25 mm OD). Free-spin on the rod; lock with a tan interlocking clip.',
     color: '#1c7ed6',
     accent: '#4dabf7',
-    teeth: 14,
+    variant: 'gear-spur',
+    teeth: GEAR_SMALL_TEETH,
     radius: mm(GEAR_SMALL_OD_MM) / 2,
     thickness: mm(GEAR_SMALL_THICK_MM),
+    pushOn: false,
+    ports: [axleSocket()],
+  },
+  {
+    id: 'gear-small-push',
+    name: 'Small Push-On Gear',
+    category: 'gears',
+    description:
+      'Classic gray 14T spur (~25 mm OD). Push-fit bore — rotates with the rod, no tan clip needed.',
+    color: '#868e96',
+    accent: '#ced4da',
+    variant: 'gear-spur',
+    teeth: GEAR_SMALL_TEETH,
+    radius: mm(GEAR_SMALL_OD_MM) / 2,
+    thickness: mm(GEAR_SMALL_THICK_MM),
+    pushOn: true,
     ports: [axleSocket()],
   },
   {
     id: 'gear-medium',
     name: 'Medium Gear',
     category: 'gears',
-    description: '34-tooth medium red gear — ~55 mm diameter.',
+    description:
+      'Classic red 34T spur (~55 mm OD). Meshes with 14T and 82T (ratio 34/14 ≈ 2.43).',
     color: '#e03131',
     accent: '#ff6b6b',
-    teeth: 34,
+    variant: 'gear-spur',
+    teeth: GEAR_MEDIUM_TEETH,
     radius: mm(GEAR_MEDIUM_OD_MM) / 2,
     thickness: mm(GEAR_MEDIUM_THICK_MM),
     ports: [axleSocket()],
   },
   {
     id: 'gear-crown',
-    name: 'Crown Gear Medium',
+    name: 'Medium Crown Gear',
     category: 'gears',
-    description: '34-tooth medium crown gear (~55 mm) — meshes parallel or at right angles.',
+    description:
+      'Classic yellow 34T crown (~55 mm OD). Same pitch as the red spur; drives at ~90°.',
     color: '#fcc419',
     accent: '#ffe066',
-    teeth: 34,
+    variant: 'gear-crown',
+    teeth: GEAR_MEDIUM_TEETH,
     radius: mm(GEAR_MEDIUM_OD_MM) / 2,
     thickness: mm(GEAR_MEDIUM_THICK_MM),
     ports: [axleSocket()],
@@ -678,11 +711,29 @@ const gears: CatalogPiece[] = [
     id: 'gear-large',
     name: 'Large Crown Gear',
     category: 'gears',
-    description: '82-tooth large crown gear — ~130 mm diameter.',
+    description:
+      'Classic 82T large crown (~130 mm OD). Ratio vs 14T ≈ 5.86; allows perpendicular mesh.',
     color: '#fcc419',
-    accent: '#868e96',
-    teeth: 82,
+    accent: '#495057',
+    variant: 'gear-crown',
+    teeth: GEAR_LARGE_TEETH,
     radius: mm(GEAR_LARGE_OD_MM) / 2,
+    thickness: mm(GEAR_LARGE_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'gear-multi',
+    name: 'Multi-Track Gear',
+    category: 'gears',
+    description:
+      'Classic green dual-track crown (~130 mm). Outer 82T + inner 64T for two drive ratios.',
+    color: '#2f9e44',
+    accent: '#8ce99a',
+    variant: 'gear-multi',
+    teeth: GEAR_LARGE_TEETH,
+    innerTeeth: GEAR_MULTI_INNER_TEETH,
+    radius: mm(GEAR_LARGE_OD_MM) / 2,
+    innerRadius: mm(GEAR_MULTI_INNER_OD_MM) / 2,
     thickness: mm(GEAR_LARGE_THICK_MM),
     ports: [axleSocket()],
   },

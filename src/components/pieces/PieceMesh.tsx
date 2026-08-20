@@ -5,6 +5,7 @@ import {
   BLUE_SPACER,
   CLIP_ARM_LENGTH,
   FULL_CLIP_ANGLES,
+  GEAR_MODULE_MM,
   GEAR_SMALL_OD_MM,
   GEAR_SMALL_THICK_MM,
   HALF_CLIP_ANGLES,
@@ -610,28 +611,85 @@ function WheelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
 }
 
 function GearMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
-  const r = catalog.radius ?? mm(GEAR_SMALL_OD_MM) / 2
+  const tipR = catalog.radius ?? mm(GEAR_SMALL_OD_MM) / 2
   const t = catalog.thickness ?? mm(GEAR_SMALL_THICK_MM)
   const teeth = catalog.teeth ?? 14
-  const crown = catalog.id === 'gear-crown' || catalog.id === 'gear-large'
-  const bore = ROD_RADIUS_SCENE * 1.02
-  const bodyR = r * 0.72
+  const style = catalog.variant ?? 'gear-spur'
+  const crown = style === 'gear-crown' || style === 'gear-multi'
+  const multi = style === 'gear-multi'
+  const pushOn = Boolean(catalog.pushOn)
+  // Classic axle Ø 6.35 mm — push-on is a tighter visual bore.
+  const bore = ROD_RADIUS_SCENE * (pushOn ? 0.92 : 1.02)
+  const module = mm(GEAR_MODULE_MM)
+  const pitchR = (teeth * module) / 2
+  const rootR = Math.max(pitchR - module * 1.25, tipR * 0.62)
+  const hubR = Math.min(rootR * 0.55, mm(12))
+  const toothW = ((Math.PI * 2 * pitchR) / teeth) * 0.42
+  const toothH = tipR - rootR
+  const toothDepth = crown ? t * 0.55 : t * 0.95
+  const toothZ = crown ? t * 0.28 : 0
+
+  const innerTeeth = catalog.innerTeeth ?? 64
+  const innerTipR = catalog.innerRadius ?? tipR * 0.8
+  const innerPitchR = (innerTeeth * module) / 2
+  const innerRootR = Math.max(innerPitchR - module * 1.25, innerTipR * 0.7)
+  const innerToothW = ((Math.PI * 2 * innerPitchR) / innerTeeth) * 0.42
+  const innerToothH = innerTipR - innerRootR
+
   return (
     <group>
-      <AnnulusMesh outerR={bodyR} innerR={bore} depth={t} mat={mat} />
+      <AnnulusMesh outerR={rootR} innerR={bore} depth={t} mat={mat} />
+      <AnnulusMesh
+        outerR={hubR}
+        innerR={bore}
+        depth={t * (pushOn ? 1.05 : 1.15)}
+        mat={mat}
+        color={catalog.accent ?? mat.color}
+      />
+      {!pushOn &&
+        [0.32, -0.32].map((side) => (
+          <mesh key={side} position={[0, 0, side * t * 0.42]}>
+            <torusGeometry args={[(hubR + rootR) * 0.42, mm(0.55), 8, 24]} />
+            <Plastic mat={mat} color="#343a40" />
+          </mesh>
+        ))}
       {Array.from({ length: teeth }).map((_, i) => {
         const a = (i / teeth) * Math.PI * 2
         return (
           <mesh
-            key={i}
-            position={[Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86, crown ? t * 0.12 : 0]}
-            rotation={[0, 0, a]}
+            key={`o${i}`}
+            position={[
+              Math.cos(a) * (rootR + toothH / 2),
+              Math.sin(a) * (rootR + toothH / 2),
+              toothZ,
+            ]}
+            rotation={[crown ? Math.PI / 2 : 0, 0, a]}
           >
-            <boxGeometry args={[r * 0.18, r * 0.16, crown ? t * 1.2 : t]} />
+            <boxGeometry
+              args={crown ? [toothW, toothDepth, toothH] : [toothW, toothH, toothDepth]}
+            />
             <Plastic mat={mat} />
           </mesh>
         )
       })}
+      {multi &&
+        Array.from({ length: innerTeeth }).map((_, i) => {
+          const a = (i / innerTeeth) * Math.PI * 2
+          return (
+            <mesh
+              key={`i${i}`}
+              position={[
+                Math.cos(a) * (innerRootR + innerToothH / 2),
+                Math.sin(a) * (innerRootR + innerToothH / 2),
+                -t * 0.22,
+              ]}
+              rotation={[Math.PI / 2, 0, a]}
+            >
+              <boxGeometry args={[innerToothW, t * 0.5, innerToothH]} />
+              <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+            </mesh>
+          )
+        })}
     </group>
   )
 }
