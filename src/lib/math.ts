@@ -12,6 +12,8 @@ import {
   isConnectorLike,
   isPreassembledHub,
   isShaftSleeve,
+  HUB_RADIUS,
+  ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
   SHAFT_END_INSET,
 } from '../data/catalog'
@@ -1052,6 +1054,52 @@ export function slidablePieceIds(pieces: PlacedPiece[], connections: Connection[
   return ids
 }
 
+/**
+ * Distance from a pointer ray to a slidable piece, or null if it is not a hit.
+ * Spacers / wheels / gears are picked as short cylinders so a click on the
+ * sleeve wins over the coaxial rod axis (which would otherwise always be closer).
+ */
+function slidableHitDistance(
+  piece: PlacedPiece,
+  catalog: CatalogPiece,
+  ray: THREE.Ray,
+): number | null {
+  const pos = new THREE.Vector3(...piece.position)
+  const closest = new THREE.Vector3()
+  ray.closestPointToPoint(pos, closest)
+  const along = closest.clone().sub(ray.origin).dot(ray.direction)
+  if (along < 0.05) return null
+
+  if (catalog.category === 'rods') {
+    const { origin, dir, half } = rodAxis(piece)
+    const t = rayAxisT(ray, origin, dir)
+    if (t == null) return null
+    const clamped = THREE.MathUtils.clamp(t, -half, half)
+    const onRod = origin.clone().addScaledVector(dir, clamped)
+    const radial = ray.distanceToPoint(onRod)
+    // Bare shaft only — do not claim the whole spacer/wheel radius.
+    if (radial > ROD_RADIUS_SCENE * 1.65) return null
+    return radial
+  }
+
+  if (isShaftSleeve(catalog)) {
+    const axis = new THREE.Vector3(0, 0, 1)
+      .applyQuaternion(quatFromTuple(piece.rotation))
+      .normalize()
+    const t = rayAxisT(ray, pos, axis)
+    if (t == null) return null
+    const half = (catalog.thickness ?? 0) / 2 + 0.05
+    if (Math.abs(t) > half) return null
+    const onAxis = pos.clone().addScaledVector(axis, THREE.MathUtils.clamp(t, -half, half))
+    const radial = ray.distanceToPoint(onAxis)
+    const outer = (catalog.radius ?? HUB_RADIUS) * 1.2
+    if (radial > outer) return null
+    return radial
+  }
+
+  return closest.distanceTo(pos)
+}
+
 export function nearestSlidablePiece(
   pieces: PlacedPiece[],
   connections: Connection[],
@@ -1059,43 +1107,30 @@ export function nearestSlidablePiece(
   maxDist = 0.9,
 ): PlacedPiece | null {
   const seated = mergeGeometricConnections(pieces, connections)
-  let best: PlacedPiece | null = null
-  let bestDist = maxDist
-  const closest = new THREE.Vector3()
+  // Prefer sleeves / hubs / clips over rods so dragging a spacer moves the
+  // spacer along the shaft instead of pulling the rod through it.
+  let bestSleeve: PlacedPiece | null = null
+  let bestSleeveDist = maxDist
+  let bestRod: PlacedPiece | null = null
+  let bestRodDist = maxDist
+
   for (const piece of pieces) {
     if (!slideJointFromSeated(piece, pieces, seated)) continue
-    const pos = new THREE.Vector3(...piece.position)
-    ray.closestPointToPoint(pos, closest)
-    const along = closest.clone().sub(ray.origin).dot(ray.direction)
-    if (along < 0.05) continue
-    let dist = closest.distanceTo(pos)
     const catalog = getCatalogPiece(piece.catalogId)
-    if (catalog?.category === 'rods') {
-      const { origin, dir, half } = rodAxis(piece)
-      const t = rayAxisT(ray, origin, dir)
-      if (t != null) {
-        const clamped = THREE.MathUtils.clamp(t, -half, half)
-        const onRod = origin.clone().addScaledVector(dir, clamped)
-        dist = Math.min(dist, ray.distanceToPoint(onRod))
+    if (!catalog) continue
+    const dist = slidableHitDistance(piece, catalog, ray)
+    if (dist == null || dist >= maxDist) continue
+    if (catalog.category === 'rods') {
+      if (dist < bestRodDist) {
+        bestRodDist = dist
+        bestRod = piece
       }
-    } else if (catalog && isShaftSleeve(catalog)) {
-      const axis = new THREE.Vector3(0, 0, 1)
-        .applyQuaternion(quatFromTuple(piece.rotation))
-        .normalize()
-      const t = rayAxisT(ray, pos, axis)
-      if (t != null) {
-        const half = (catalog.thickness ?? 0) / 2
-        const clamped = THREE.MathUtils.clamp(t, -half, half)
-        const onAxis = pos.clone().addScaledVector(axis, clamped)
-        dist = Math.min(dist, ray.distanceToPoint(onAxis))
-      }
-    }
-    if (dist < bestDist) {
-      bestDist = dist
-      best = piece
+    } else if (dist < bestSleeveDist) {
+      bestSleeveDist = dist
+      bestSleeve = piece
     }
   }
-  return best
+  return bestSleeve ?? bestRod
 }
 
 /** Parameter along an infinite axis for the closest point to a ray. */
