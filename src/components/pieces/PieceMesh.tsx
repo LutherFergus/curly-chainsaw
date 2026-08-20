@@ -23,7 +23,8 @@ import {
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
   SPACER_OUTER_RADIUS,
-  WHEEL_50_OD_MM,
+  HUB_MEDIUM_OD_MM,
+  HUB_SMALL_OD_MM,
   WHEEL_THICK_MM,
   mm,
 } from '../../data/catalog'
@@ -565,46 +566,103 @@ function SleeveMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) 
 }
 
 function WheelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
-  const r = catalog.radius ?? mm(25) / 2
+  const r = catalog.radius ?? mm(HUB_SMALL_OD_MM) / 2
   const t = catalog.thickness ?? mm(WHEEL_THICK_MM)
-  const hubR = Math.min(r * 0.38, mm(WHEEL_50_OD_MM) / 4)
-  const bore = ROD_RADIUS_SCENE * 1.02
-  const isTire = catalog.id === 'wheel-tire'
+  const style = catalog.variant ?? 'wheel-pulley'
+  const hubR =
+    catalog.hubRadius ??
+    (style === 'wheel-tire' ? Math.min(r * 0.72, mm(HUB_MEDIUM_OD_MM) / 2) : r)
+  /** Free-spin clearance around Classic 6.35 mm rod — not an exact rod fit. */
+  const bore = ROD_RADIUS_SCENE * 1.05
+  const hubColor = catalog.accent ?? mat.color
+  const spokes = catalog.spokes ?? 6
+  const tire = style === 'wheel-tire'
+  const spoke = style === 'wheel-spoke'
+  const race = style === 'wheel-race'
+  const narrow = style === 'wheel-narrow'
+  const thin = style === 'wheel-thin'
+  const pulley = style === 'wheel-pulley' || thin
+
+  const tireTube = Math.max((r - hubR) * 0.72, mm(3))
+  const tireMajor = r - tireTube * 0.85
+
   return (
     <group>
-      {isTire ? (
+      {tire ? (
         <>
-          {/* Solid tire volume (torus tube) + solid hub annulus */}
           <mesh>
-            <torusGeometry args={[r * 0.78, r * 0.22, 14, 32]} />
+            <torusGeometry args={[tireMajor, tireTube, 12, 36]} />
             <Plastic mat={mat} />
           </mesh>
+          <AnnulusMesh outerR={hubR * 0.98} innerR={bore} depth={t * 0.92} mat={mat} color={hubColor} />
+          <mesh position={[0, 0, t * 0.28]}>
+            <torusGeometry args={[hubR * 0.92, mm(0.7), 8, 28]} />
+            <Plastic mat={mat} color={hubColor} />
+          </mesh>
+          <mesh position={[0, 0, -t * 0.28]}>
+            <torusGeometry args={[hubR * 0.92, mm(0.7), 8, 28]} />
+            <Plastic mat={mat} color={hubColor} />
+          </mesh>
+        </>
+      ) : spoke ? (
+        <>
+          <AnnulusMesh outerR={hubR * 0.28} innerR={bore} depth={t} mat={mat} />
           <AnnulusMesh
-            outerR={hubR * 1.45}
+            outerR={hubR}
+            innerR={hubR * 0.82}
+            depth={t * 0.9}
+            mat={mat}
+            color={hubColor}
+          />
+          {Array.from({ length: spokes }).map((_, i) => {
+            const a = (i / spokes) * Math.PI * 2
+            const mid = (hubR * 0.28 + hubR * 0.82) / 2
+            return (
+              <mesh
+                key={i}
+                position={[Math.cos(a) * mid, Math.sin(a) * mid, 0]}
+                rotation={[0, 0, a]}
+              >
+                <boxGeometry args={[hubR * 0.58, mm(2.4), t * 0.7]} />
+                <Plastic mat={mat} color={hubColor} />
+              </mesh>
+            )
+          })}
+        </>
+      ) : (
+        <>
+          <AnnulusMesh
+            outerR={hubR * (race ? 0.95 : 1)}
             innerR={bore}
             depth={t}
             mat={mat}
-            color={catalog.accent ?? mat.color}
           />
-        </>
-      ) : (
-        <AnnulusMesh outerR={r} innerR={bore} depth={t} mat={mat} />
-      )}
-      {!isTire &&
-        catalog.id === 'wheel-hub-50' &&
-        Array.from({ length: 6 }).map((_, i) => {
-          const a = (i / 6) * Math.PI * 2
-          return (
-            <mesh
-              key={i}
-              position={[Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, 0]}
-              rotation={[0, 0, a]}
-            >
-              <boxGeometry args={[r * 0.42, mm(2.2), t * 0.85]} />
-              <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+          {pulley && (
+            <mesh>
+              <torusGeometry args={[hubR * 0.88, mm(thin ? 0.9 : 1.35), 8, 28]} />
+              <Plastic mat={mat} color={hubColor} />
             </mesh>
-          )
-        })}
+          )}
+          {race && (
+            <>
+              <mesh position={[0, 0, t * 0.22]}>
+                <torusGeometry args={[hubR * 0.9, mm(1.1), 8, 28]} />
+                <Plastic mat={mat} color={hubColor} />
+              </mesh>
+              <mesh position={[0, 0, -t * 0.22]}>
+                <torusGeometry args={[hubR * 0.9, mm(1.1), 8, 28]} />
+                <Plastic mat={mat} color={hubColor} />
+              </mesh>
+            </>
+          )}
+          {narrow && (
+            <mesh>
+              <torusGeometry args={[hubR * 0.9, mm(0.85), 8, 28]} />
+              <Plastic mat={mat} color={hubColor} />
+            </mesh>
+          )}
+        </>
+      )}
     </group>
   )
 }

@@ -207,12 +207,68 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
   }
 
   if (piece.category === 'wheels') {
-    const r = piece.id === 'wheel-25' ? 12 : piece.id === 'wheel-hub-50' ? 16 : 18
+    const tire = piece.variant === 'wheel-tire'
+    const spoke = piece.variant === 'wheel-spoke'
+    const race = piece.variant === 'wheel-race'
+    const thin = piece.variant === 'wheel-thin'
+    const odHint = (piece.radius ?? 0) * 75 // ≈ OD in mm (scene unit = 37.5 mm)
+    const r = thin ? 10 : Math.min(20, Math.max(12, odHint * 0.2))
     return (
       <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
-        <circle cx="32" cy="32" r={r} fill={color} />
-        <circle cx="32" cy="32" r={r * 0.55} fill={accent} />
-        <circle cx="32" cy="32" r="4" fill="#1a1b1e" opacity="0.35" />
+        {tire ? (
+          <>
+            <circle cx="32" cy="32" r={r} fill={color} />
+            <circle cx="32" cy="32" r={r * 0.62} fill={accent} />
+            <circle cx="32" cy="32" r={r * 0.38} fill={color} opacity="0.35" />
+          </>
+        ) : spoke ? (
+          <>
+            <circle cx="32" cy="32" r={r} fill="none" stroke={color} strokeWidth="3.5" />
+            <circle cx="32" cy="32" r="5" fill={accent} />
+            {[0, 60, 120, 180, 240, 300].map((deg) => {
+              const a = (deg * Math.PI) / 180
+              return (
+                <line
+                  key={deg}
+                  x1={32 + Math.cos(a) * 5}
+                  y1={32 + Math.sin(a) * 5}
+                  x2={32 + Math.cos(a) * (r - 2)}
+                  y2={32 + Math.sin(a) * (r - 2)}
+                  stroke={accent}
+                  strokeWidth="2"
+                />
+              )
+            })}
+          </>
+        ) : (
+          <>
+            <circle cx="32" cy="32" r={r} fill={color} />
+            <circle cx="32" cy="32" r={r * 0.55} fill={accent} />
+            {(piece.variant === 'wheel-pulley' || thin) && (
+              <circle
+                cx="32"
+                cy="32"
+                r={r * 0.78}
+                fill="none"
+                stroke={accent}
+                strokeWidth="1.5"
+                opacity="0.7"
+              />
+            )}
+            {race && (
+              <circle
+                cx="32"
+                cy="32"
+                r={r * 0.72}
+                fill="none"
+                stroke={color}
+                strokeWidth="2"
+                opacity="0.85"
+              />
+            )}
+          </>
+        )}
+        <circle cx="32" cy="32" r="3.5" fill="#1a1b1e" opacity="0.4" />
       </svg>
     )
   }
