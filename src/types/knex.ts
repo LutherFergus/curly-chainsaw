@@ -29,6 +29,12 @@ export type ConnectorVariant =
   | 'panel-square'
   | 'panel-tri'
   | 'chain-link'
+  | 'wheel-thin'
+  | 'wheel-pulley'
+  | 'wheel-spoke'
+  | 'wheel-race'
+  | 'wheel-narrow'
+  | 'wheel-tire'
 
 export interface PortDef {
   id: string
@@ -56,6 +62,10 @@ export interface CatalogPiece {
   thickness?: number
   /** Gear tooth count when applicable */
   teeth?: number
+  /** Hub outer radius (scene) when `radius` is a tire/finished OD */
+  hubRadius?: number
+  /** Spoke count for spoked wheels */
+  spokes?: number
   /** Flexible rod (same snap as rigid; visual bend later) */
   flexi?: boolean
   /** Visual / assembly style */

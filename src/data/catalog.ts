@@ -56,10 +56,25 @@ export const GEAR_LARGE_OD_MM = 130
 export const GEAR_SMALL_THICK_MM = BLUE_SPACER_MM * 4
 export const GEAR_MEDIUM_THICK_MM = BLUE_SPACER_MM * 4
 export const GEAR_LARGE_THICK_MM = BLUE_SPACER_MM * 3
-export const WHEEL_25_OD_MM = 25
-export const WHEEL_50_OD_MM = 50
-export const TIRE_MEDIUM_OD_MM = 72
+/**
+ * Classic K’NEX wheel / hub / tire family (visual CAD envelopes).
+ * Axle: Classic 6.35 mm rod with free-spin clearance in the hub bore.
+ */
+export const WHEEL_THIN_OD_MM = 25
+export const HUB_SMALL_OD_MM = 37
+export const HUB_MEDIUM_OD_MM = 50
+export const TIRE_SMALL_OD_MM = 47
+export const TIRE_MEDIUM_OD_MM = 65
+export const TIRE_LARGE_OD_MM = 92
+export const TIRE_NARROW_OD_MM = 60
+/** Default hub/pulley axial thickness (approx). */
 export const WHEEL_THICK_MM = BLUE_SPACER_MM * 4
+export const WHEEL_NARROW_WIDTH_MM = 12
+export const WHEEL_LARGE_WIDTH_MM = 15
+/** @deprecated Use WHEEL_THIN_OD_MM */
+export const WHEEL_25_OD_MM = WHEEL_THIN_OD_MM
+/** @deprecated Use HUB_MEDIUM_OD_MM */
+export const WHEEL_50_OD_MM = HUB_MEDIUM_OD_MM
 
 /** Panels: small body 64×64 mm (shop); large ~5.5 in / 140 mm (patent). */
 export const PANEL_THICK_MM = 2.5
@@ -604,35 +619,146 @@ const spacers: CatalogPiece[] = [
 const wheels: CatalogPiece[] = [
   {
     id: 'wheel-25',
-    name: '25mm Wheel',
+    name: 'Thin Wheel / Pulley',
     category: 'wheels',
-    description: 'Closed-centre 25 mm wheel — slide onto a rod; hold with spacers or a tan clip.',
+    description:
+      'Black thin wheel/pulley (~25 mm OD). Smaller than the 37 mm small hub; free-spin on a Classic rod.',
     color: '#212529',
     accent: '#495057',
-    radius: mm(WHEEL_25_OD_MM) / 2,
+    variant: 'wheel-thin',
+    radius: mm(WHEEL_THIN_OD_MM) / 2,
+    thickness: mm(WHEEL_THICK_MM * 0.55),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-hub-small',
+    name: 'Small Hub / Pulley',
+    category: 'wheels',
+    description:
+      '37 mm silver hub/pulley (90978). Free-spin on Classic rod; rim retains the small tire or works as a pulley.',
+    color: '#ced4da',
+    accent: '#868e96',
+    variant: 'wheel-pulley',
+    radius: mm(HUB_SMALL_OD_MM) / 2,
+    thickness: mm(WHEEL_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-spoke-small',
+    name: 'Small Spoked Wheel',
+    category: 'wheels',
+    description:
+      '37 mm six-spoke wheel (91978). Alternative to the solid small hub; takes the small tire (~47 mm finished).',
+    color: '#adb5bd',
+    accent: '#495057',
+    variant: 'wheel-spoke',
+    spokes: 6,
+    radius: mm(HUB_SMALL_OD_MM) / 2,
+    thickness: mm(WHEEL_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-race-small',
+    name: 'Small Racing Hub',
+    category: 'wheels',
+    description:
+      '37 mm racing hub (91170/91174). Vehicle hub — different rim from the 90978 pulley; free-spin on Classic rod.',
+    color: '#868e96',
+    accent: '#343a40',
+    variant: 'wheel-race',
+    radius: mm(HUB_SMALL_OD_MM) / 2,
+    thickness: mm(WHEEL_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-small',
+    name: 'Small Tire Wheel',
+    category: 'wheels',
+    description: `37 mm hub with small tire 91975 (~${TIRE_SMALL_OD_MM} mm finished OD).`,
+    color: '#212529',
+    accent: '#ced4da',
+    variant: 'wheel-tire',
+    hubRadius: mm(HUB_SMALL_OD_MM) / 2,
+    radius: mm(TIRE_SMALL_OD_MM) / 2,
     thickness: mm(WHEEL_THICK_MM),
     ports: [axleSocket()],
   },
   {
     id: 'wheel-hub-50',
-    name: '50mm Hub / Pulley',
+    name: 'Medium Hub / Pulley',
     category: 'wheels',
-    description: '50 mm silver hub/pulley — use alone as a pulley or with a tire.',
+    description:
+      '50 mm silver hub/pulley (90979). Free-spin; takes medium (~65 mm) or large (~92 mm) tires.',
     color: '#ced4da',
     accent: '#868e96',
-    radius: mm(WHEEL_50_OD_MM) / 2,
+    variant: 'wheel-pulley',
+    radius: mm(HUB_MEDIUM_OD_MM) / 2,
     thickness: mm(WHEEL_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-race-medium',
+    name: 'Medium Racing Hub',
+    category: 'wheels',
+    description:
+      '50 mm racing hub (91184). Different rim/tire interface from the 90979 pulley hub.',
+    color: '#868e96',
+    accent: '#343a40',
+    variant: 'wheel-race',
+    radius: mm(HUB_MEDIUM_OD_MM) / 2,
+    thickness: mm(WHEEL_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-narrow-hub',
+    name: 'Narrow Racing Hub',
+    category: 'wheels',
+    description:
+      '50 mm narrow racing hub (91254). Pair with 91240 narrow tire, or two hubs in a wider 50 mm racing tire.',
+    color: '#868e96',
+    accent: '#495057',
+    variant: 'wheel-narrow',
+    radius: mm(HUB_MEDIUM_OD_MM) / 2,
+    thickness: mm(WHEEL_NARROW_WIDTH_MM * 0.55),
     ports: [axleSocket()],
   },
   {
     id: 'wheel-tire',
     name: 'Medium Tire Wheel',
     category: 'wheels',
-    description: `50 mm hub with medium tire (~${TIRE_MEDIUM_OD_MM} mm OD).`,
+    description: `50 mm hub with medium tire 91976 (~${TIRE_MEDIUM_OD_MM} mm finished OD).`,
     color: '#212529',
-    accent: '#868e96',
+    accent: '#ced4da',
+    variant: 'wheel-tire',
+    hubRadius: mm(HUB_MEDIUM_OD_MM) / 2,
     radius: mm(TIRE_MEDIUM_OD_MM) / 2,
     thickness: mm(WHEEL_THICK_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-narrow',
+    name: 'Narrow Tire Wheel',
+    category: 'wheels',
+    description: `Narrow hub + 91240 tire (~${TIRE_NARROW_OD_MM} mm OD, ~${WHEEL_NARROW_WIDTH_MM} mm wide).`,
+    color: '#212529',
+    accent: '#868e96',
+    variant: 'wheel-tire',
+    hubRadius: mm(HUB_MEDIUM_OD_MM) / 2,
+    radius: mm(TIRE_NARROW_OD_MM) / 2,
+    thickness: mm(WHEEL_NARROW_WIDTH_MM),
+    ports: [axleSocket()],
+  },
+  {
+    id: 'wheel-large',
+    name: 'Large Tire Wheel',
+    category: 'wheels',
+    description: `50 mm hub with large tire 91977 (~${TIRE_LARGE_OD_MM} mm OD, ~${WHEEL_LARGE_WIDTH_MM} mm wide).`,
+    color: '#212529',
+    accent: '#ced4da',
+    variant: 'wheel-tire',
+    hubRadius: mm(HUB_MEDIUM_OD_MM) / 2,
+    radius: mm(TIRE_LARGE_OD_MM) / 2,
+    thickness: mm(WHEEL_LARGE_WIDTH_MM),
     ports: [axleSocket()],
   },
 ]
