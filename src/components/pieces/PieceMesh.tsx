@@ -7,6 +7,7 @@ import {
   FULL_CLIP_ANGLES,
   GEAR_SMALL_OD_MM,
   GEAR_SMALL_THICK_MM,
+  gearToothDepth,
   HALF_CLIP_ANGLES,
   HOLE_CLIP_HOLE_ID,
   HOLE_CLIP_HOLE_OD,
@@ -677,10 +678,7 @@ function makeSpurGearGeometry(
   const n = Math.max(6, Math.floor(teeth))
   const pitch = (Math.PI * 2) / n
   // Stubby trapezoid teeth sized by pitch so high tooth counts stay distinct.
-  const toothDepth = Math.max(
-    tipR * 0.055,
-    Math.min(tipR * 0.28, ((2 * Math.PI * tipR) / n) * 0.72),
-  )
+  const toothDepth = gearToothDepth(tipR, n)
   const rootR = Math.max(boreR * 1.4, tipR - toothDepth)
   const tipHalf = pitch * 0.28
   const rimInner = Math.min(innerR ?? boreR, rootR * 0.92)
@@ -729,7 +727,7 @@ function GearMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
   const hubR = Math.min(r * (spoked ? 0.2 : 0.3), mm(9))
   const hubT = t * (spoked ? 1.35 : 1.18)
   const pitch = (Math.PI * 2) / Math.max(6, teeth)
-  const toothDepth = Math.max(r * 0.055, Math.min(r * 0.28, ((2 * Math.PI * r) / teeth) * 0.72))
+  const toothDepth = gearToothDepth(r, teeth)
   const rootR = r - toothDepth
   const rimInner = spoked ? Math.max(hubR * 1.6, rootR * 0.78) : bore
 

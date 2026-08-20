@@ -8,8 +8,8 @@ export type PieceCategory =
   | 'panels'
   | 'chain'
 
-/** rod-end ↔ socket; interlock ↔ interlock (connector plates slid together) */
-export type PortKind = 'rod-end' | 'socket' | 'interlock' | 'shaft'
+/** rod-end ↔ socket; interlock ↔ interlock; gear-mesh ↔ gear-mesh (teeth) */
+export type PortKind = 'rod-end' | 'socket' | 'interlock' | 'shaft' | 'gear-mesh'
 
 export type ConnectorVariant =
   | 'plate' // flat non-slotted connector
