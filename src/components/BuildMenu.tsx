@@ -159,7 +159,7 @@ export function BuildMenu() {
             type="button"
             className={`tool-btn${tool === 'slide' ? ' active' : ''}`}
             onClick={() => setTool('slide')}
-            title="Slide a perp clip, through-hole hub, or spacer along the shaft (L)"
+            title="Slide a spacer, perp clip, or through-hole hub along the shaft — or slide the rod (L)"
           >
             Slide
           </button>
