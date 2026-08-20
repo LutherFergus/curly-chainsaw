@@ -2,15 +2,29 @@ import { useMemo } from 'react'
 import * as THREE from 'three'
 import type { CatalogPiece, ConnectorVariant } from '../../types/knex'
 import {
+  BLUE_SPACER,
   CLIP_ARM_LENGTH,
   FULL_CLIP_ANGLES,
+  GEAR_SMALL_OD_MM,
+  GEAR_SMALL_THICK_MM,
   HALF_CLIP_ANGLES,
+  HOLE_CLIP_HOLE_ID,
+  HOLE_CLIP_HOLE_OD,
+  HOLE_CLIP_SPAN,
   HUB_HEIGHT,
   HUB_RADIUS,
   NESTED_FULL_CLIP_ANGLES,
   NESTED_HALF_CLIP_ANGLES,
+  PANEL_THICK_MM,
+  ROD_END_CLIP_GROOVE_LEN,
+  ROD_END_CLIP_HEAD_LEN,
+  ROD_END_CLIP_NECK_EXTENT,
+  ROD_END_CLIP_SHAFT_LEN,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
+  SPACER_OUTER_RADIUS,
+  WHEEL_50_OD_MM,
+  WHEEL_THICK_MM,
   mm,
 } from '../../data/catalog'
 
@@ -321,7 +335,7 @@ function ConnectorMesh({
     const list: number[] = []
     for (const port of catalog.ports) {
       if (port.kind !== 'socket') continue
-      // Only use ports that lie in the primary (Y-hub) plane for single plates.
+      if (port.id.startsWith('center') || port.id === 'hole' || port.id === 'bore') continue
       if (Math.abs(port.direction[1]) > 0.35) continue
       const yaw = (Math.atan2(port.direction[0], port.direction[2]) * 180) / Math.PI
       list.push(((yaw % 360) + 360) % 360)
@@ -356,6 +370,143 @@ function ConnectorMesh({
     )
   }
 
+  if (variant === 'hole-clip') {
+    const holeR = HOLE_CLIP_HOLE_ID / 2
+    const ringR = HOLE_CLIP_HOLE_OD / 2
+    return (
+      <group>
+        <group quaternion={quatForClip([0, 0, 1])}>
+          <CClip mat={mat} accent={catalog.accent} />
+        </group>
+        <mesh position={[0, 0, -HOLE_CLIP_SPAN * 0.35]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[(holeR + ringR) / 2, (ringR - holeR) / 2, 10, 20]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, -HOLE_CLIP_SPAN * 0.12]}>
+          <boxGeometry args={[mm(3), HUB_HEIGHT * 0.7, HOLE_CLIP_SPAN * 0.45]} />
+          <Plastic mat={mat} />
+        </mesh>
+      </group>
+    )
+  }
+
+  if (variant === 'lock-clip') {
+    return (
+      <group quaternion={quatForClip([0, 0, 1])}>
+        <CClip mat={mat} accent={catalog.accent} />
+      </group>
+    )
+  }
+
+  if (variant === 'rod-end-clip') {
+    const pinR = ROD_RADIUS_SCENE
+    const grooveR = mm(4.8) / 2
+    const headR = mm(8.2) / 2
+    // Overlap the C-clip web so jaws + neck + pin read as one solid body.
+    const neckFrom = HUB_RADIUS + mm(2.2)
+    const neckTo = -ROD_END_CLIP_NECK_EXTENT
+    const neckLen = neckFrom - neckTo
+    const neckZ = (neckFrom + neckTo) / 2
+    const shaftLen = ROD_END_CLIP_SHAFT_LEN
+    const grooveLen = ROD_END_CLIP_GROOVE_LEN
+    const headLen = ROD_END_CLIP_HEAD_LEN
+    const shaftZ = neckTo - shaftLen / 2
+    const grooveZ = neckTo - shaftLen - grooveLen / 2
+    const headZ = neckTo - shaftLen - grooveLen - headLen / 2
+    const tipZ = neckTo - shaftLen - grooveLen - headLen
+    return (
+      <group>
+        <group quaternion={quatForClip([0, 0, 1])}>
+          <CClip mat={mat} accent={catalog.accent} />
+        </group>
+        <mesh position={[0, 0, neckZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[pinR * 1.15, pinR * 1.15, neckLen, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, shaftZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[pinR, pinR, shaftLen, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, grooveZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[grooveR, grooveR, grooveLen, 16]} />
+          <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+        </mesh>
+        <mesh position={[0, 0, headZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[headR * 0.78, headR, headLen, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, tipZ + headR * 0.42]}>
+          <sphereGeometry args={[headR * 0.78, 16, 12]} />
+          <Plastic mat={mat} />
+        </mesh>
+      </group>
+    )
+  }
+
+  if (variant === 'hinge') {
+    return (
+      <group>
+        <mesh>
+          <cylinderGeometry args={[mm(2.2), mm(2.2), HUB_HEIGHT * 1.1, 12]} />
+          <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+        </mesh>
+        <group position={[0, 0, SOCKET_RADIUS * 0.15]} quaternion={quatForClip([0, 0, 1])}>
+          <CClip mat={mat} />
+        </group>
+        <group position={[0, 0, -SOCKET_RADIUS * 0.15]} quaternion={quatForClip([0, 0, -1])}>
+          <CClip mat={{ ...mat, color: catalog.accent ?? mat.color }} />
+        </group>
+      </group>
+    )
+  }
+
+  if (variant === 'ball-clip') {
+    const ballR = catalog.radius ?? mm(5.5)
+    return (
+      <group>
+        <group quaternion={quatForClip([0, 0, 1])}>
+          <CClip mat={mat} accent={catalog.accent} />
+        </group>
+        <mesh position={[0, 0, -SOCKET_RADIUS - mm(8)]}>
+          <sphereGeometry args={[ballR, 16, 16]} />
+          <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+        </mesh>
+      </group>
+    )
+  }
+
+  if (variant === 'socket-clip') {
+    const cupR = catalog.radius ?? mm(6)
+    return (
+      <group>
+        <group quaternion={quatForClip([0, 0, 1])}>
+          <CClip mat={mat} accent={catalog.accent} />
+        </group>
+        <mesh position={[0, 0, -SOCKET_RADIUS - mm(6)]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[cupR * 0.72, cupR * 0.28, 10, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+      </group>
+    )
+  }
+
+  if (variant === 'end-cap') {
+    const r = catalog.radius ?? mm(4)
+    const t = catalog.thickness ?? mm(4)
+    return (
+      <group>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[r, r, t, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, t * 0.15]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[ROD_RADIUS_SCENE * 1.05, ROD_RADIUS_SCENE * 1.05, t * 0.5, 12]} />
+          <Plastic mat={mat} color={catalog.accent ?? '#495057'} />
+        </mesh>
+      </group>
+    )
+  }
+
   return (
     <ConnectorPlate
       mat={mat}
@@ -363,6 +514,195 @@ function ConnectorMesh({
       angles={angles}
       slotted={false}
     />
+  )
+}
+
+function makeAnnulusGeometry(outerR: number, innerR: number, depth: number): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape()
+  shape.absarc(0, 0, outerR, 0, Math.PI * 2, false)
+  const hole = new THREE.Path()
+  hole.absarc(0, 0, Math.min(innerR, outerR * 0.92), 0, Math.PI * 2, true)
+  shape.holes.push(hole)
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: false,
+    curveSegments: 28,
+  })
+  // Center on origin; thickness along Z (axle axis for sleeves/wheels/gears).
+  geo.translate(0, 0, -depth / 2)
+  return geo
+}
+
+function AnnulusMesh({
+  outerR,
+  innerR,
+  depth,
+  mat,
+  color,
+}: {
+  outerR: number
+  innerR: number
+  depth: number
+  mat: MatProps
+  color?: string
+}) {
+  const geo = useMemo(
+    () => makeAnnulusGeometry(outerR, innerR, depth),
+    [outerR, innerR, depth],
+  )
+  return (
+    <mesh geometry={geo}>
+      <Plastic mat={mat} color={color} />
+    </mesh>
+  )
+}
+
+function SleeveMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
+  const r = catalog.radius ?? SPACER_OUTER_RADIUS
+  const t = catalog.thickness ?? BLUE_SPACER
+  const hole = ROD_RADIUS_SCENE * 1.02
+  return <AnnulusMesh outerR={r} innerR={hole} depth={t} mat={mat} />
+}
+
+function WheelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
+  const r = catalog.radius ?? mm(25) / 2
+  const t = catalog.thickness ?? mm(WHEEL_THICK_MM)
+  const hubR = Math.min(r * 0.38, mm(WHEEL_50_OD_MM) / 4)
+  const bore = ROD_RADIUS_SCENE * 1.02
+  const isTire = catalog.id === 'wheel-tire'
+  return (
+    <group>
+      {isTire ? (
+        <>
+          {/* Solid tire volume (torus tube) + solid hub annulus */}
+          <mesh>
+            <torusGeometry args={[r * 0.78, r * 0.22, 14, 32]} />
+            <Plastic mat={mat} />
+          </mesh>
+          <AnnulusMesh
+            outerR={hubR * 1.45}
+            innerR={bore}
+            depth={t}
+            mat={mat}
+            color={catalog.accent ?? mat.color}
+          />
+        </>
+      ) : (
+        <AnnulusMesh outerR={r} innerR={bore} depth={t} mat={mat} />
+      )}
+      {!isTire &&
+        catalog.id === 'wheel-hub-50' &&
+        Array.from({ length: 6 }).map((_, i) => {
+          const a = (i / 6) * Math.PI * 2
+          return (
+            <mesh
+              key={i}
+              position={[Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55, 0]}
+              rotation={[0, 0, a]}
+            >
+              <boxGeometry args={[r * 0.42, mm(2.2), t * 0.85]} />
+              <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+            </mesh>
+          )
+        })}
+    </group>
+  )
+}
+
+function GearMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
+  const r = catalog.radius ?? mm(GEAR_SMALL_OD_MM) / 2
+  const t = catalog.thickness ?? mm(GEAR_SMALL_THICK_MM)
+  const teeth = catalog.teeth ?? 14
+  const crown = catalog.id === 'gear-crown' || catalog.id === 'gear-large'
+  const bore = ROD_RADIUS_SCENE * 1.02
+  const bodyR = r * 0.72
+  return (
+    <group>
+      <AnnulusMesh outerR={bodyR} innerR={bore} depth={t} mat={mat} />
+      {Array.from({ length: teeth }).map((_, i) => {
+        const a = (i / teeth) * Math.PI * 2
+        return (
+          <mesh
+            key={i}
+            position={[Math.cos(a) * r * 0.86, Math.sin(a) * r * 0.86, crown ? t * 0.12 : 0]}
+            rotation={[0, 0, a]}
+          >
+            <boxGeometry args={[r * 0.18, r * 0.16, crown ? t * 1.2 : t]} />
+            <Plastic mat={mat} />
+          </mesh>
+        )
+      })}
+    </group>
+  )
+}
+
+function PanelMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
+  const side = catalog.length ?? mm(64)
+  const thick = catalog.thickness ?? mm(PANEL_THICK_MM)
+  const tri = catalog.variant === 'panel-tri'
+  const tip = SOCKET_RADIUS * 0.85
+
+  const bodyGeo = useMemo(() => {
+    if (!tri) {
+      const geo = new THREE.BoxGeometry(side, thick, side)
+      return geo
+    }
+    const shape = new THREE.Shape()
+    const h = side / 2
+    shape.moveTo(0, h)
+    shape.lineTo(h, -h)
+    shape.lineTo(-h, -h)
+    shape.closePath()
+    const geo = new THREE.ExtrudeGeometry(shape, {
+      depth: thick,
+      bevelEnabled: false,
+    })
+    geo.translate(0, 0, -thick / 2)
+    geo.rotateX(-Math.PI / 2)
+    return geo
+  }, [side, thick, tri])
+
+  return (
+    <group>
+      <mesh geometry={bodyGeo}>
+        <Plastic mat={mat} />
+      </mesh>
+      {catalog.ports
+        .filter((p) => p.kind === 'rod-end')
+        .map((p) => (
+          <mesh
+            key={p.id}
+            position={[
+              p.position[0] - p.direction[0] * tip * 0.35,
+              p.position[1],
+              p.position[2] - p.direction[2] * tip * 0.35,
+            ]}
+            rotation={[Math.PI / 2, 0, Math.atan2(p.direction[0], p.direction[2])]}
+          >
+            <cylinderGeometry args={[ROD_RADIUS_SCENE * 0.85, ROD_RADIUS_SCENE * 0.85, tip, 12]} />
+            <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+          </mesh>
+        ))}
+    </group>
+  )
+}
+
+function ChainMesh({ catalog, mat }: { catalog: CatalogPiece; mat: MatProps }) {
+  const len = catalog.length ?? mm(20)
+  const r = catalog.radius ?? mm(5)
+  const t = catalog.thickness ?? mm(4)
+  // Chain links are solid toroidal plastic tubes.
+  return (
+    <group>
+      <mesh rotation={[0, 0, Math.PI / 2]}>
+        <torusGeometry args={[r * 0.55, t * 0.35, 10, 20]} />
+        <Plastic mat={mat} />
+      </mesh>
+      <mesh position={[0, 0, len * 0.15]} rotation={[0, 0, Math.PI / 2]}>
+        <torusGeometry args={[r * 0.45, t * 0.3, 10, 18]} />
+        <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+      </mesh>
+    </group>
   )
 }
 
@@ -385,7 +725,7 @@ export function PieceMesh({
   }
 
   if (catalog.category === 'rods') {
-    // Classic rods: constant Ø shaft between end detents (flange + snap groove).
+    // Classic rods: solid constant-Ø shaft between end detents (flange + snap groove).
     const length = catalog.length ?? 1
     const shaftRadius = ROD_RADIUS_SCENE
     const flangeRadius = mm(8.2) / 2
@@ -421,63 +761,12 @@ export function PieceMesh({
     )
   }
 
-  if (catalog.category === 'wheels') {
-    return (
-      <group>
-        <mesh rotation={[0, 0, Math.PI / 2]}>
-          <torusGeometry args={[0.55, 0.16, 16, 32]} />
-          <Plastic mat={mat} />
-        </mesh>
-        <mesh rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.18, 0.18, 0.22, 20]} />
-          <Plastic mat={mat} color={catalog.accent ?? '#adb5bd'} />
-        </mesh>
-        {Array.from({ length: 6 }).map((_, i) => {
-          const a = (i / 6) * Math.PI * 2
-          return (
-            <mesh
-              key={i}
-              position={[Math.cos(a) * 0.32, Math.sin(a) * 0.32, 0]}
-              rotation={[0, 0, a]}
-            >
-              <boxGeometry args={[0.28, 0.06, 0.08]} />
-              <Plastic mat={mat} color={catalog.accent ?? '#ced4da'} />
-            </mesh>
-          )
-        })}
-      </group>
-    )
-  }
-
-  if (catalog.category === 'gears') {
-    const radius = catalog.id === 'gear-large' ? 0.7 : 0.42
-    const teeth = catalog.id === 'gear-large' ? 16 : 12
-    return (
-      <group>
-        <mesh>
-          <cylinderGeometry args={[radius * 0.7, radius * 0.7, 0.18, 24]} />
-          <Plastic mat={mat} />
-        </mesh>
-        {Array.from({ length: teeth }).map((_, i) => {
-          const a = (i / teeth) * Math.PI * 2
-          return (
-            <mesh
-              key={i}
-              position={[Math.cos(a) * radius * 0.85, Math.sin(a) * radius * 0.85, 0]}
-              rotation={[0, 0, a]}
-            >
-              <boxGeometry args={[0.16, 0.14, 0.2]} />
-              <Plastic mat={mat} />
-            </mesh>
-          )
-        })}
-        <mesh>
-          <cylinderGeometry args={[0.12, 0.12, 0.28, 16]} />
-          <Plastic mat={mat} color="#495057" />
-        </mesh>
-      </group>
-    )
-  }
+  if (catalog.category === 'spacers') return <SleeveMesh catalog={catalog} mat={mat} />
+  if (catalog.category === 'wheels') return <WheelMesh catalog={catalog} mat={mat} />
+  if (catalog.category === 'gears') return <GearMesh catalog={catalog} mat={mat} />
+  if (catalog.category === 'panels') return <PanelMesh catalog={catalog} mat={mat} />
+  if (catalog.category === 'chain') return <ChainMesh catalog={catalog} mat={mat} />
+  if (catalog.category === 'clips') return <ConnectorMesh catalog={catalog} mat={mat} />
 
   return <ConnectorMesh catalog={catalog} mat={mat} />
 }

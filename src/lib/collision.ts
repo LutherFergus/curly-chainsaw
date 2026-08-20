@@ -7,6 +7,7 @@ import {
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
   getCatalogPiece,
+  isConnectorLike,
 } from '../data/catalog'
 import { isCenterSocket, mergeGeometricConnections, quatFromTuple } from './math'
 
@@ -90,7 +91,7 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
     ]
   }
 
-  if (catalog.category === 'connectors') {
+  if (isConnectorLike(catalog)) {
     const hubAxis = new THREE.Vector3(0, 1, 0).applyQuaternion(q)
     const h = HUB_HEIGHT / 2
     const caps: Capsule[] = [
@@ -103,9 +104,10 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
     if (!includeClips) return caps
     for (const port of catalog.ports) {
       if (port.kind !== 'socket' || isCenterSocket(port.id)) continue
+      if (port.id === 'hole' || port.id === 'bore') continue
       const dir = new THREE.Vector3(...port.direction).applyQuaternion(q).normalize()
       caps.push({
-        a: origin.clone().addScaledVector(dir, SOCKET_RADIUS),
+        a: origin.clone().addScaledVector(dir, SOCKET_RADIUS * 0.35),
         b: origin.clone().addScaledVector(dir, SOCKET_RADIUS + CLIP_ARM_LENGTH),
         radius: ROD_HIT,
       })
@@ -113,20 +115,105 @@ function capsulesFor(piece: PlacedPiece, includeClips: boolean): Capsule[] {
     return caps
   }
 
-  if (catalog.category === 'wheels') {
-    return [{ a: origin.clone(), b: origin.clone(), radius: 0.71 }]
-  }
+  const radius = catalog.radius ?? 0.4
+  const thick = catalog.thickness ?? HUB_HEIGHT
+  const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
+  return [
+    {
+      a: origin.clone().addScaledVector(axis, -thick / 2),
+      b: origin.clone().addScaledVector(axis, thick / 2),
+      radius: Math.max(radius, ROD_HIT),
+    },
+  ]
+}
 
-  const radius = catalog.id === 'gear-large' ? 0.7 : 0.42
-  return [{ a: origin.clone(), b: origin.clone(), radius }]
+function clipCapsulesFor(piece: PlacedPiece): Capsule[] {
+  const catalog = getCatalogPiece(piece.catalogId)
+  if (!catalog || catalog.category !== 'connectors') return []
+  const origin = new THREE.Vector3(...piece.position)
+  const q = quatFromTuple(piece.rotation)
+  const caps: Capsule[] = []
+  for (const port of catalog.ports) {
+    if (port.kind !== 'socket' || isCenterSocket(port.id)) continue
+    const dir = new THREE.Vector3(...port.direction).applyQuaternion(q).normalize()
+    caps.push({
+      a: origin.clone().addScaledVector(dir, SOCKET_RADIUS),
+      b: origin.clone().addScaledVector(dir, SOCKET_RADIUS + CLIP_ARM_LENGTH),
+      radius: ROD_HIT,
+    })
+  }
+  return caps
+}
+
+/** Crossing clip arms. Coaxial end-to-end (nose-to-nose on a rod) is not a scissor. */
+function clipsScissor(a: Capsule[], b: Capsule[]): boolean {
+  for (const left of a) {
+    const d1 = left.b.clone().sub(left.a)
+    if (d1.lengthSq() < 1e-10) continue
+    d1.normalize()
+    for (const right of b) {
+      const d2 = right.b.clone().sub(right.a)
+      if (d2.lengthSq() < 1e-10) continue
+      d2.normalize()
+      const limit = left.radius + right.radius
+      if (segmentDistSq(left.a, left.b, right.a, right.b) >= limit * limit) continue
+      if (Math.abs(d1.dot(d2)) > 0.9) {
+        const mid1 = left.a.clone().add(left.b).multiplyScalar(0.5)
+        const mid2 = right.a.clone().add(right.b).multiplyScalar(0.5)
+        const between = mid2.sub(mid1)
+        const lateral = between.clone().addScaledVector(d1, -between.dot(d1)).length()
+        if (lateral < limit * 0.65) continue
+      }
+      return true
+    }
+  }
+  return false
+}
+
+type HubDisk = {
+  origin: THREE.Vector3
+  axis: THREE.Vector3
+  radius: number
+  halfH: number
+}
+
+function hubDiskOf(piece: PlacedPiece): HubDisk | null {
+  const catalog = getCatalogPiece(piece.catalogId)
+  if (catalog?.category !== 'connectors') return null
+  const q = quatFromTuple(piece.rotation)
+  return {
+    origin: new THREE.Vector3(...piece.position),
+    axis: new THREE.Vector3(0, 1, 0).applyQuaternion(q).normalize(),
+    radius: HUB_RADIUS,
+    halfH: HUB_HEIGHT / 2,
+  }
+}
+
+/**
+ * Flat hubs may sit face-to-face or rim-to-rim. They may not occupy the same
+ * disk. Capsules would treat stacked faces as a hit because of spherical caps.
+ */
+function hubDisksOverlap(a: HubDisk, b: HubDisk): boolean {
+  const align = Math.abs(a.axis.dot(b.axis))
+  const delta = b.origin.clone().sub(a.origin)
+  if (align > 0.82) {
+    const axial = Math.abs(delta.dot(a.axis))
+    const radial = delta.clone().addScaledVector(a.axis, -delta.dot(a.axis)).length()
+    if (axial >= a.halfH + b.halfH - 0.02) return false
+    return radial < a.radius + b.radius - 0.012
+  }
+  return delta.length() < (a.radius + b.radius) * 0.82
 }
 
 function pairOverlaps(a: PlacedPiece, b: PlacedPiece): boolean {
   const ca = getCatalogPiece(a.catalogId)
   const cb = getCatalogPiece(b.catalogId)
-  // Hubs nest, stack, and slide together on a shaft — they do not collide.
-  // Collision is for rods (and wheels/gears) that would pass through a piece.
-  if (ca?.category === 'connectors' && cb?.category === 'connectors') return false
+  if (ca?.category === 'connectors' && cb?.category === 'connectors') {
+    if (clipsScissor(clipCapsulesFor(a), clipCapsulesFor(b))) return true
+    const ha = hubDiskOf(a)
+    const hb = hubDiskOf(b)
+    return Boolean(ha && hb && hubDisksOverlap(ha, hb))
+  }
   const clips = ca?.category === 'rods' || cb?.category === 'rods'
   return capsulesOverlap(capsulesFor(a, clips), capsulesFor(b, clips))
 }

@@ -1,10 +1,17 @@
 import { useMemo } from 'react'
-import { CATALOG, isPreassembledHub } from '../data/catalog'
+import { CATALOG, CATEGORY_LABELS, isHiddenFromPalette } from '../data/catalog'
 import type { PieceCategory } from '../types/knex'
 import { useBuilderStore } from '../store/builderStore'
 import { PieceIcon } from './PieceIcon'
 
-const ORDER: PieceCategory[] = ['rods', 'connectors', 'wheels', 'gears']
+const ORDER: PieceCategory[] = [
+  'rods',
+  'connectors',
+  'spacers',
+  'wheels',
+  'gears',
+  'panels',
+]
 
 function Chevron({ direction }: { direction: 'left' | 'right' }) {
   return (
@@ -40,11 +47,13 @@ export function Sidebar() {
   const menuOpen = useBuilderStore((s) => s.menuOpen)
   const toggleMenu = useBuilderStore((s) => s.toggleMenu)
 
-  const items = useMemo(
+  const sections = useMemo(
     () =>
-      ORDER.flatMap((category) =>
-        CATALOG.filter((p) => p.category === category && !isPreassembledHub(p)),
-      ),
+      ORDER.map((category) => ({
+        category,
+        label: CATEGORY_LABELS[category],
+        pieces: CATALOG.filter((p) => p.category === category && !isHiddenFromPalette(p)),
+      })).filter((section) => section.pieces.length > 0),
     [],
   )
 
@@ -68,23 +77,30 @@ export function Sidebar() {
         </button>
 
         <div className="rail-stack" role="listbox" aria-label="Pieces">
-          {items.map((piece) => {
-            const active = selectedCatalogId === piece.id
-            return (
-              <button
-                key={piece.id}
-                type="button"
-                className={`icon-btn${active ? ' active' : ''}`}
-                onClick={() => selectCatalog(piece.id)}
-                title={piece.name}
-                aria-label={piece.name}
-                aria-pressed={active}
-                role="option"
-              >
-                <PieceIcon piece={piece} />
-              </button>
-            )
-          })}
+          {sections.map((section) => (
+            <div key={section.category} className="rail-section">
+              <div className="rail-section-label" aria-hidden="true">
+                {section.label}
+              </div>
+              {section.pieces.map((piece) => {
+                const active = selectedCatalogId === piece.id
+                return (
+                  <button
+                    key={piece.id}
+                    type="button"
+                    className={`icon-btn${active ? ' active' : ''}`}
+                    onClick={() => selectCatalog(piece.id)}
+                    title={piece.name}
+                    aria-label={piece.name}
+                    aria-pressed={active}
+                    role="option"
+                  >
+                    <PieceIcon piece={piece} />
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
