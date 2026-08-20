@@ -16,6 +16,10 @@ import {
   NESTED_FULL_CLIP_ANGLES,
   NESTED_HALF_CLIP_ANGLES,
   PANEL_THICK_MM,
+  ROD_END_CLIP_GROOVE_LEN,
+  ROD_END_CLIP_HEAD_LEN,
+  ROD_END_CLIP_NECK_EXTENT,
+  ROD_END_CLIP_SHAFT_LEN,
   ROD_RADIUS_SCENE,
   SOCKET_RADIUS,
   SPACER_OUTER_RADIUS,
@@ -395,14 +399,44 @@ function ConnectorMesh({
   }
 
   if (variant === 'rod-end-clip') {
-    const stub = mm(8)
+    const pinR = ROD_RADIUS_SCENE
+    const grooveR = mm(4.8) / 2
+    const headR = mm(8.2) / 2
+    // Overlap the C-clip web so jaws + neck + pin read as one solid body.
+    const neckFrom = HUB_RADIUS + mm(2.2)
+    const neckTo = -ROD_END_CLIP_NECK_EXTENT
+    const neckLen = neckFrom - neckTo
+    const neckZ = (neckFrom + neckTo) / 2
+    const shaftLen = ROD_END_CLIP_SHAFT_LEN
+    const grooveLen = ROD_END_CLIP_GROOVE_LEN
+    const headLen = ROD_END_CLIP_HEAD_LEN
+    const shaftZ = neckTo - shaftLen / 2
+    const grooveZ = neckTo - shaftLen - grooveLen / 2
+    const headZ = neckTo - shaftLen - grooveLen - headLen / 2
+    const tipZ = neckTo - shaftLen - grooveLen - headLen
     return (
       <group>
         <group quaternion={quatForClip([0, 0, 1])}>
           <CClip mat={mat} accent={catalog.accent} />
         </group>
-        <mesh position={[0, 0, -SOCKET_RADIUS - stub / 2]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[ROD_RADIUS_SCENE * 0.9, ROD_RADIUS_SCENE * 0.9, stub, 12]} />
+        <mesh position={[0, 0, neckZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[pinR * 1.15, pinR * 1.15, neckLen, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, shaftZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[pinR, pinR, shaftLen, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, grooveZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[grooveR, grooveR, grooveLen, 16]} />
+          <Plastic mat={mat} color={catalog.accent ?? mat.color} />
+        </mesh>
+        <mesh position={[0, 0, headZ]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[headR * 0.78, headR, headLen, 16]} />
+          <Plastic mat={mat} />
+        </mesh>
+        <mesh position={[0, 0, tipZ + headR * 0.42]}>
+          <sphereGeometry args={[headR * 0.78, 16, 12]} />
           <Plastic mat={mat} />
         </mesh>
       </group>

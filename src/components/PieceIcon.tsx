@@ -63,7 +63,18 @@ export function PieceIcon({ piece }: { piece: CatalogPiece }) {
     )
   }
 
-  if (piece.variant === 'lock-clip' || piece.variant === 'rod-end-clip') {
+  if (piece.variant === 'rod-end-clip') {
+    return (
+      <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
+        <path d="M14 24 h8 v16 h-8 a8 8 0 0 1 0-16z" fill={color} />
+        <rect x="22" y="28" width="16" height="8" rx="1" fill={color} />
+        <rect x="38" y="29.5" width="6" height="5" rx="1" fill={accent} />
+        <circle cx="50" cy="32" r="6" fill={color} />
+      </svg>
+    )
+  }
+
+  if (piece.variant === 'lock-clip') {
     return (
       <svg viewBox="0 0 64 64" className="piece-icon" aria-hidden="true">
         <path d="M20 24 h8 v16 h-8 a8 8 0 0 1 0-16z" fill={color} />

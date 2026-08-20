@@ -23,6 +23,21 @@ export const CLIP_ARM_LENGTH = mm(8.6)
 export const SHAFT_END_INSET = mm(6.2)
 
 /**
+ * Solid rod-end clip pin (C-clip faces +Z, pin faces −Z).
+ * Neck fills through the origin so the C-jaws and grooved pin are one piece.
+ * Tip stack matches a rod end: shaft → groove → bulbous head.
+ */
+export const ROD_END_CLIP_NECK_EXTENT = SOCKET_RADIUS * 0.12
+export const ROD_END_CLIP_SHAFT_LEN = mm(6.5)
+export const ROD_END_CLIP_GROOVE_LEN = mm(1.6)
+export const ROD_END_CLIP_HEAD_LEN = mm(3.2)
+export const ROD_END_CLIP_PIN_TIP =
+  ROD_END_CLIP_NECK_EXTENT +
+  ROD_END_CLIP_SHAFT_LEN +
+  ROD_END_CLIP_GROOVE_LEN +
+  ROD_END_CLIP_HEAD_LEN
+
+/**
  * Classic “blue spacer” unit. Green hub-to-hub (37.5 mm) is 12 units (MIT).
  * Shop listings that say “0.31 mm” for blue / “0.93 mm” for silver are typos;
  * silver is three blue spacers wide.
@@ -241,13 +256,12 @@ function holeClipPorts(): PortDef[] {
 }
 
 function rodEndClipPorts(): PortDef[] {
-  const stub = mm(8)
   return [
     ...singleClipPorts(),
     {
       id: 'stub',
       kind: 'rod-end',
-      position: [0, 0, -SOCKET_RADIUS - stub],
+      position: [0, 0, -ROD_END_CLIP_PIN_TIP],
       direction: [0, 0, -1],
     },
   ]
@@ -443,7 +457,8 @@ const clips: CatalogPiece[] = [
     id: 'clip-rod-end',
     name: 'Rod-End Clip',
     category: 'clips',
-    description: 'Black C-clip with an integral rod stub that seats in another connector socket.',
+    description:
+      'One solid piece: C-clip onto a rod shaft, pin into a connector socket. Spins on the rod and in the clip.',
     color: '#212529',
     accent: '#495057',
     variant: 'rod-end-clip',
